@@ -1,62 +1,19 @@
 <script setup lang="ts">
-import { NConfigProvider, NModal, dateZhCN, zhCN } from 'naive-ui';
+import { NConfigProvider, dateZhCN, zhCN } from 'naive-ui';
 import { RouterView } from 'vue-router';
-import store from './utils/store';
+import ErrorDlg from './components/ErrorDlg.vue';
 </script>
-
 <template>
   <NConfigProvider :locale="zhCN" :date-locale="dateZhCN" abstract>
-    <NModal
-      v-model:show="store.githubErrorDlgVisible"
-      preset="dialog"
-      title="生成分享链接失败"
-    >
-      <div>生成分享链接需要以下条件</div>
-      <div>
-        在当前浏览器登录
-        <a href="https://github.com" target="_blank" rel="noopener noreferrer">
-          github.com
-        </a>
-      </div>
-    </NModal>
-    <NModal
-      v-model:show="store.networkErrorDlgVisible"
-      preset="dialog"
-      title="访问其它域名资源失败"
-    >
-      <div>访问其它域名资源需要以下条件</div>
-      <div>
-        1. 安装脚本管理器, 如
-        <a
-          href="https://violentmonkey.github.io/"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Violentmonkey
-        </a>
-      </div>
-      <div>
-        2. 安装油猴脚本
-        <a
-          href="https://github.com/gkd-kit/network-extension"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          network-extension
-        </a>
-      </div>
-      <div>3. 在当前网站启用上述油猴脚本的API注入功能</div>
-      <div>
-        4. 如果是分享链接则需要在当前浏览器登录
-        <a href="https://github.com" target="_blank" rel="noopener noreferrer">
-          github.com
-        </a>
-      </div>
-    </NModal>
+    <ErrorDlg />
     <RouterView />
   </NConfigProvider>
 </template>
 <style lang="scss">
+:root {
+  --gkd-width: max(1200px, 100vw);
+  --gkd-height: max(700px, 100vh);
+}
 #app {
   min-width: 1200px;
   min-height: 700px;
@@ -64,8 +21,34 @@ import store from './utils/store';
   flex-direction: column;
   width: 100vw;
   height: 100vh;
+  &.mobile {
+    --gkd-width: 100vw;
+    min-width: auto;
+  }
 }
 .gkd_code {
   font-family: v-mono, SFMono-Regular, Menlo, Consolas, Courier, monospace !important;
+}
+
+[direction-rtl],
+.direction-rtl {
+  direction: rtl;
+}
+
+.box-shadow-dim,
+[box-shadow-dim] {
+  box-shadow:
+    0 3px 6px -4px rgba(0, 0, 0, 0.12),
+    0 6px 16px 0 rgba(0, 0, 0, 0.08),
+    0 9px 28px 8px rgba(0, 0, 0, 0.05);
+}
+@media (prefers-color-scheme: dark) {
+  .box-shadow-dim,
+  [box-shadow-dim] {
+    box-shadow:
+      0 3px 6px -4px rgba(0, 0, 0, 0.24),
+      0 6px 12px 0 rgba(0, 0, 0, 0.16),
+      0 9px 18px 8px rgba(0, 0, 0, 0.1);
+  }
 }
 </style>

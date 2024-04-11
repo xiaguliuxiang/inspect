@@ -6,7 +6,7 @@ import unocss from 'unocss/vite';
 import { defineConfig } from 'vite';
 import { _404Page, commit, mirror } from './plugins';
 
-export default defineConfig(({}) => {
+export default defineConfig(() => {
   const useMirror = process.env.MIRROR == `ON`;
   return {
     plugins: [
@@ -27,8 +27,12 @@ export default defineConfig(({}) => {
       host: '127.0.0.1',
       port: 8444,
     },
+    preview: {
+      host: '127.0.0.1',
+      port: 8444,
+    },
     build: {
-      target: `chrome80`,
+      target: `chrome70`,
       sourcemap: true,
     },
   };

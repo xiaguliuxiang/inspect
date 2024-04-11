@@ -5,34 +5,31 @@ import { message } from '@/utils/discrete';
 import { errorWrap } from '@/utils/error';
 import { delay } from '@/utils/others';
 import { checkSelector } from '@/utils/selector';
-import { snapshotStorage, screenshotStorage } from '@/utils/storage';
+import { screenshotStorage, snapshotStorage } from '@/utils/storage';
 import { useSnapshotColumns } from '@/utils/table';
 import { useBatchTask, useTask } from '@/utils/task';
 import type { Device, Snapshot } from '@/utils/types';
-import { useStorage, useTitle, useDebounceFn } from '@vueuse/core';
+import { useDebounceFn, useStorage, useTitle } from '@vueuse/core';
 import JSON5 from 'json5';
 import {
-  DataTableColumns,
   NButton,
+  NCheckbox,
   NDataTable,
+  NIcon,
   NInput,
   NInputGroup,
-  NSpace,
-  PaginationProps,
-  NIcon,
   NModal,
-  NRadioGroup,
-  NRadio,
   NSelect,
-  NCheckbox,
+  NSpace,
+  type DataTableColumns,
+  type PaginationProps,
 } from 'naive-ui';
-import { SortState } from 'naive-ui/es/data-table/src/interface';
+import type { SortState } from 'naive-ui/es/data-table/src/interface';
 import pLimit from 'p-limit';
 import {
   onMounted,
   shallowReactive,
   shallowRef,
-  toRaw,
   watch,
   watchEffect,
 } from 'vue';
@@ -63,18 +60,11 @@ const snapshots = shallowRef<Snapshot[]>([]);
 watchEffect(async () => {
   if (!device.value) return;
   title.value = `已连接 ` + device.value.manufacturer;
+  device.value.release;
   const result = await api.snapshots();
   result.sort((a, b) => b.id - a.id);
   snapshots.value = result;
-  const subsApps = await api.subsApps();
-  subsText.value = JSON5.stringify(
-    subsApps || [],
-    function (key, value) {
-      if (value === null) return undefined;
-      return value;
-    },
-    2,
-  );
+  subsText.value = '';
 });
 
 const captureSnapshot = useTask(async () => {
@@ -127,7 +117,7 @@ const {
   ctimeCol,
   appVersionCodeCol,
   appVersionNameCol,
-  reseColWidth,
+  resetColWidth,
 } = useSnapshotColumns();
 const handleSorterChange = (sorter: SortState) => {
   if (sorter.columnKey == ctimeCol.key) {
@@ -162,7 +152,7 @@ const columns: DataTableColumns<Snapshot> = [
   activityIdCol,
   {
     key: `actions`,
-    title: `Action`,
+    title: `操作`,
     fixed: 'right',
     width: `120px`,
     render(row) {
@@ -194,31 +184,85 @@ const pagination = shallowReactive<PaginationProps>({
     pagination.page = 1;
   },
 });
-watch(pagination, reseColWidth);
+watch(pagination, resetColWidth);
 
 const showSubsModel = shallowRef(false);
 const subsText = shallowRef(``);
 const updateSubs = useTask(async () => {
-  const appsSubs = errorWrap(() => JSON5.parse(subsText.value.trim() || `[]`));
-  await api.updateSubsApps([].concat(appsSubs));
+  const data = errorWrap(() => JSON5.parse(subsText.value.trim()));
+  if (!data) return;
+  if (device.value?.gkdVersionCode) {
+    if (data.categories || data.globalGroups || data.apps) {
+      await api.updateSubscription(data);
+    } else if (typeof data.id == 'string') {
+      await api.updateSubscription({
+        apps: [data],
+      });
+    } else if (Array.isArray(data) && typeof data[0].id == 'string') {
+      await api.updateSubscription({
+        apps: data,
+      });
+    } else if (typeof data.key == 'number') {
+      await api.updateSubscription({
+        globalGroups: [data],
+      });
+    } else if (Array.isArray(data) && typeof data[0].key == 'number') {
+      await api.updateSubscription({
+        globalGroups: data,
+      });
+    } else {
+      message.error(`无法识别的订阅文本`);
+      return;
+    }
+  } else {
+    await api.updateSubsApps([].concat(data));
+  }
   message.success(`修改成功`);
 });
 
 const showSelectorModel = shallowRef(false);
 
-const actionOptions = [
-  'click',
-  'clickNode',
-  'clickCenter',
-  'back',
-  'longClick',
-  'longClickNode',
-  'longClickCenter',
-].map((s) => ({ value: s, label: s }));
+const actionOptions: {
+  value?: string;
+  label: string;
+}[] = [
+  {
+    label: '仅查询',
+    value: undefined,
+  },
+  {
+    value: 'click',
+    label: 'click',
+  },
+  {
+    value: 'clickNode',
+    label: 'clickNode',
+  },
+  {
+    value: 'clickCenter',
+    label: 'clickCenter',
+  },
+  {
+    value: 'back',
+    label: 'back',
+  },
+  {
+    value: 'longClick',
+    label: 'longClick',
+  },
+  {
+    value: 'longClickNode',
+    label: 'longClickNode',
+  },
+  {
+    value: 'longClickCenter',
+    label: 'longClickCenter',
+  },
+];
 const clickAction = shallowReactive({
   selector: ``,
   selectorValid: false,
-  action: actionOptions[0].value,
+  action: 'click',
   quickFind: false,
 });
 const checkSelectorValid = useDebounceFn(() => {
@@ -228,13 +272,64 @@ watch(() => clickAction.selector.trim(), checkSelectorValid);
 const execSelector = useTask(async () => {
   const result = await api.execSelector({ ...clickAction });
   if (result.message) {
-    message.success(`点击成功:` + result.message);
+    message.success(`操作成功:` + result.message);
     return;
   }
   if (result.action) {
-    message.success((result.result ? `点击成功:` : `点击失败`) + result.action);
+    message.success((result.result ? `操作成功:` : `操作失败`) + result.action);
+  } else if (!result.action && result.result) {
+    message.success(`查询成功`);
   }
 });
+
+const placeholder = `
+请输入订阅文本(JSON5语法):
+示例1-更新单个应用的规则:
+{
+  id: 'appId',
+  groups: []
+}
+
+示例2-更新多个应用的规则:
+[
+  {
+    id: 'appId1',
+    groups: []
+  },
+  {
+    id: 'appId2',
+    groups: []
+  }
+]
+
+示例3-更新全局规则(1.7.0):
+{
+  name: '全局规则-1',
+  key: 0,
+  rules: []
+}
+
+示例3-更新多个全局规则(1.7.0):
+[
+  {
+    name: '全局规则-1',
+    key: 0,
+    rules: []
+  },
+  {
+    name: '全局规则-2',
+    key: 1,
+    rules: []
+  }
+]
+
+示例4-更新整个订阅(1.7.0):
+{
+  apps: [],
+  globalGroups: [],
+  categories: [],
+}
+`.trim();
 </script>
 <template>
   <NModal
@@ -256,10 +351,10 @@ const execSelector = useTask(async () => {
       type="textarea"
       class="gkd_code"
       :autosize="{
-        minRows: 10,
+        minRows: 20,
         maxRows: 25,
       }"
-      :placeholder="`请输入订阅文本\n订阅支持JSON5\n根节点可以是APP规则对象也可以是APP规则对象数组`"
+      :placeholder="placeholder"
     />
   </NModal>
   <NModal
@@ -291,7 +386,7 @@ const execSelector = useTask(async () => {
     <NSpace>
       <NCheckbox v-model:checked="clickAction.quickFind"> 快速查找 </NCheckbox>
       <a
-        href="https://github.com/gkd-kit/subscription/blob/main/src/types.ts"
+        href="https://gkd.li/api/interfaces/RawCommonProps.html#quickfind"
         target="_blank"
         rel="noopener noreferrer"
       >
@@ -306,7 +401,7 @@ const execSelector = useTask(async () => {
         class="w-150px"
       />
       <a
-        href="https://github.com/gkd-kit/subscription/blob/main/src/types.ts"
+        href="https://gkd.li/api/interfaces/RawRuleProps#action"
         target="_blank"
         rel="noopener noreferrer"
       >

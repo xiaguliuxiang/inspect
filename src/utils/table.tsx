@@ -1,15 +1,19 @@
 import dayjs from 'dayjs';
+import { NEllipsis } from 'naive-ui';
 import type { TableBaseColumn } from 'naive-ui/es/data-table/src/interface';
 import { shallowReactive } from 'vue';
-import { useAutoWrapWidthColumn } from './size';
-import type { Snapshot } from './types';
 import { getDevice } from './node';
+import { copy } from './others';
+import { useAutoWrapWidthColumn } from './size';
+import { importTimeStorage } from './storage';
+import type { Snapshot } from './types';
 
-export const renderDveice = (row: Snapshot) => {
+export const renderDevice = (row: Snapshot) => {
   return `${getDevice(row).manufacturer} Android${
     getDevice(row).release || `13`
   }`;
 };
+
 export const useSnapshotColumns = () => {
   const ctimeCol = shallowReactive<TableBaseColumn<Snapshot>>({
     key: `id`,
@@ -24,6 +28,23 @@ export const useSnapshotColumns = () => {
       return dayjs(row.id).format('MM-DD HH:mm:ss');
     },
   });
+  const mtimeCol = shallowReactive<TableBaseColumn<Snapshot>>({
+    key: `mtime`,
+    title: `导入时间`,
+    width: `130px`,
+    sortOrder: false,
+    sorter(rowA, rowB) {
+      return (
+        (importTimeStorage[rowA.id] || rowA.id) -
+        (importTimeStorage[rowB.id] || rowB.id)
+      );
+    },
+    render(row) {
+      return dayjs(importTimeStorage[row.id] || row.id).format(
+        'MM-DD HH:mm:ss',
+      );
+    },
+  });
 
   const deviceCol = useAutoWrapWidthColumn<Snapshot>({
     key: `versionRelease`,
@@ -31,19 +52,26 @@ export const useSnapshotColumns = () => {
     filterMultiple: true,
     minWidth: 100,
     filter(value, row) {
-      return renderDveice(row).includes(value.toString());
+      return renderDevice(row).includes(value.toString());
     },
     render(row) {
-      return renderDveice(row);
+      return renderDevice(row);
     },
   });
   const appNameCol = useAutoWrapWidthColumn<Snapshot>({
     key: `appName`,
     minWidth: 100,
-    title: `APP名称`,
+    title: `应用名称`,
     filterMultiple: true,
     filter(value, row) {
       return value.toString() == row.appName;
+    },
+    cellProps(row) {
+      return {
+        onClick() {
+          copy(row.appName);
+        },
+      };
     },
     render(row) {
       return row.appName;
@@ -51,8 +79,15 @@ export const useSnapshotColumns = () => {
   });
   const appIdCol = useAutoWrapWidthColumn<Snapshot>({
     key: `appId`,
-    title: `ID`,
+    title: `应用ID`,
     minWidth: 100,
+    cellProps(row) {
+      return {
+        onClick() {
+          copy(row.appId);
+        },
+      };
+    },
     render(row) {
       return row.appId;
     },
@@ -70,7 +105,7 @@ export const useSnapshotColumns = () => {
     title: `版本号`,
     minWidth: 150,
     render(row) {
-      return row.appVersionName;
+      return <NEllipsis>{row.appVersionName}</NEllipsis>;
     },
   });
 
@@ -81,12 +116,23 @@ export const useSnapshotColumns = () => {
     filter(value, row) {
       return value.toString() == row.activityId;
     },
+    cellProps(row) {
+      return {
+        onClick() {
+          copy(row.activityId);
+        },
+      };
+    },
     render(row) {
-      return row.activityId;
+      return (
+        <div class="whitespace-nowrap text-left direction-rtl">
+          <NEllipsis>{row.activityId}</NEllipsis>
+        </div>
+      );
     },
   });
 
-  const reseColWidth = () => {
+  const resetColWidth = () => {
     deviceCol.width = void 0;
     appNameCol.width = void 0;
     appIdCol.width = void 0;
@@ -95,12 +141,13 @@ export const useSnapshotColumns = () => {
   };
   return {
     ctimeCol,
+    mtimeCol,
     deviceCol,
     appNameCol,
     appIdCol,
     appVersionCodeCol,
     appVersionNameCol,
     activityIdCol,
-    reseColWidth,
+    resetColWidth,
   };
 };

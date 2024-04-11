@@ -1,5 +1,5 @@
 <script setup lang="tsx">
-import { showTextDLg } from '@/utils/dialog';
+import { showTextDLg, waitShareAgree } from '@/utils/dialog';
 import { message } from '@/utils/discrete';
 import {
   exportSnapshotAsJpg,
@@ -7,14 +7,14 @@ import {
   exportSnapshotAsZip,
   exportSnapshotAsZipUrl,
 } from '@/utils/export';
-import { delay } from '@/utils/others';
+import { buildEmptyFn, delay } from '@/utils/others';
 import {
   githubJpgStorage,
   githubZipStorage,
   snapshotStorage,
 } from '@/utils/storage';
 import { useTask } from '@/utils/task';
-import { Snapshot } from '@/utils/types';
+import type { Snapshot } from '@/utils/types';
 import { githubUrlToSelfUrl } from '@/utils/url';
 import { NButton, NIcon, NPopover, NSpace } from 'naive-ui';
 import { computed } from 'vue';
@@ -34,7 +34,7 @@ const props = withDefaults(
     showExport: true,
     showDelete: true,
     showShare: true,
-    onDelete: () => () => {},
+    onDelete: buildEmptyFn,
   },
 );
 
@@ -55,22 +55,24 @@ const previewUrl = computed(() => {
 });
 
 const exportJpgUrl = useTask(async () => {
+  await waitShareAgree();
   const pngUrl = await exportSnapshotAsJpgUrl(
     (await snapshotStorage.getItem(props.snapshot.id))!,
   );
   showTextDLg({
     title: `分享链接`,
-    content: githubUrlToSelfUrl(pngUrl),
+    content: githubUrlToSelfUrl(router, pngUrl),
   });
 });
 
 const exportZipUrl = useTask(async () => {
+  await waitShareAgree();
   const zipUrl = await exportSnapshotAsZipUrl(
     (await snapshotStorage.getItem(props.snapshot.id))!,
   );
   showTextDLg({
     title: `分享链接`,
-    content: githubUrlToSelfUrl(zipUrl),
+    content: githubUrlToSelfUrl(router, zipUrl),
   });
 });
 
@@ -92,18 +94,12 @@ const copy = async (content: string) => {
 };
 </script>
 <template>
-  <NSpace>
+  <div flex gap-12px flex-nowrap>
     <a v-if="showPreview" target="_blank" :href="previewUrl">
       <NButton size="small">
         <template #icon>
           <NIcon>
-            <svg
-              viewBox="0 0 1024 1024"
-              version="1.1"
-              xmlns="http://www.w3.org/2000/svg"
-              width="200"
-              height="200"
-            >
+            <svg viewBox="0 0 1024 1024" width="200" height="200">
               <path
                 d="M549.973333 128 633.6 145.066667 474.026667 896 390.4 878.933333 549.973333 128M835.84 512 682.666667 358.826667 682.666667 238.08 956.586667 512 682.666667 785.493333 682.666667 664.746667 835.84 512M67.413333 512 341.333333 238.08 341.333333 358.826667 188.16 512 341.333333 664.746667 341.333333 785.493333 67.413333 512Z"
               ></path>
@@ -171,7 +167,9 @@ const copy = async (content: string) => {
       <NSpace vertical>
         <NButton
           v-if="githubZipStorage[snapshot.id]"
-          @click="copy(githubUrlToSelfUrl(githubZipStorage[snapshot.id]))"
+          @click="
+            copy(githubUrlToSelfUrl($router, githubZipStorage[snapshot.id]))
+          "
         >
           复制链接-快照
         </NButton>
@@ -184,7 +182,9 @@ const copy = async (content: string) => {
         </NButton>
         <NButton
           v-if="githubJpgStorage[snapshot.id]"
-          @click="copy(githubUrlToSelfUrl(githubJpgStorage[snapshot.id]))"
+          @click="
+            copy(githubUrlToSelfUrl($router, githubJpgStorage[snapshot.id]))
+          "
         >
           复制链接-图片
         </NButton>
@@ -215,5 +215,5 @@ const copy = async (content: string) => {
         ></NIcon>
       </template>
     </NButton>
-  </NSpace>
+  </div>
 </template>

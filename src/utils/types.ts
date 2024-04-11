@@ -1,5 +1,3 @@
-import type { VNode } from 'vue';
-
 export type PrimitiveType = boolean | string | number | null | undefined;
 
 export type RpcError = {
@@ -15,6 +13,8 @@ export type Device = {
   brand: string;
   sdkInt: number;
   release: string;
+  gkdVersionCode: number;
+  gkdVersionName: string;
 };
 
 export type RawNode = {
@@ -32,6 +32,7 @@ export type RawNode = {
 
 export type RawAttr = {
   id?: string;
+  vid?: string;
   name: string;
   text?: string;
   textLen?: number;

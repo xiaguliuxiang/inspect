@@ -1,11 +1,15 @@
 <script setup lang="tsx">
 import { toValidURL } from '@/utils/check';
 import { loadingBar, message } from '@/utils/discrete';
+import { gmOk } from '@/utils/gm';
 import { importFromNetwork } from '@/utils/import';
-import { delay } from '@/utils/others';
-import { githubZipStorage } from '@/utils/storage';
-import { githubJpgStorage } from '@/utils/storage';
-import { urlStorage, snapshotStorage } from '@/utils/storage';
+import { delay, filterQuery } from '@/utils/others';
+import {
+  githubJpgStorage,
+  githubZipStorage,
+  snapshotStorage,
+  urlStorage,
+} from '@/utils/storage';
 import { githubImageUrlReg, githubZipUrlReg } from '@/utils/url';
 import { onMounted, shallowRef } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -17,6 +21,14 @@ const importUrl = String(route.query.url || ``);
 
 const loading = shallowRef(true);
 const tip = shallowRef(`加载中...`);
+
+const goToSnapshot = async (snapshotId: number) => {
+  router.replace({
+    name: 'snapshot',
+    params: { snapshotId },
+    query: filterQuery(route.query, ['str', 'gkd']),
+  });
+};
 
 onMounted(async () => {
   if (!toValidURL(importUrl)) {
@@ -32,10 +44,7 @@ onMounted(async () => {
   if (snapshotId) {
     const snapshot = await snapshotStorage.getItem(snapshotId);
     if (snapshot) {
-      router.replace({
-        name: 'snapshot',
-        params: { snapshotId },
-      });
+      goToSnapshot(snapshotId);
       return;
     } else {
       delete urlStorage[importUrl];
@@ -57,10 +66,7 @@ onMounted(async () => {
         }
         loading.value = false;
         await delay(500);
-        router.replace({
-          name: 'snapshot',
-          params: { snapshotId: snapshot.id },
-        });
+        goToSnapshot(snapshot.id);
       } else {
         tip.value = `获取资源失败`;
       }
@@ -78,11 +84,22 @@ onMounted(async () => {
     class="h-[calc(100%-10px)]"
     flex
     gap-5px
-    p-5px
+    pt-40px
     flex-col
     flex-items-center
   >
-    <div v-show="loading" mt-40px>
+    <div v-if="!gmOk()" mb-20px>
+      建议安装并启用
+      <a
+        href="https://github.com/gkd-kit/network-extension"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        油猴脚本
+      </a>
+      获取更快加载速度
+    </div>
+    <div v-show="loading">
       {{ tip }}
     </div>
   </div>

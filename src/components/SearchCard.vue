@@ -1,142 +1,231 @@
 <script setup lang="ts">
-import dayjs from 'dayjs';
 import { message } from '@/utils/discrete';
 import { errorTry, errorWrap } from '@/utils/error';
-import { parseSelector } from '@/utils/selector';
+import { getNodeLabel } from '@/utils/node';
+import { buildEmptyFn, copy } from '@/utils/others';
 import type { Selector } from '@/utils/selector';
+import { parseSelector, wasmLoadTask } from '@/utils/selector';
+import { githubJpgStorage, githubZipStorage } from '@/utils/storage';
 import type { RawNode, Snapshot } from '@/utils/types';
+import { githubUrlToSelfUrl } from '@/utils/url';
+import dayjs from 'dayjs';
+import JSON5 from 'json5';
 import {
   NButton,
+  NButtonGroup,
   NCollapse,
   NCollapseItem,
+  NIcon,
   NInput,
   NInputGroup,
   NRadio,
   NRadioGroup,
   NSpace,
-  NIcon,
 } from 'naive-ui';
-import { shallowReactive, shallowRef } from 'vue';
+import * as base64url from 'universal-base64url';
+import { computed, onMounted, shallowReactive, shallowRef } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import DraggableCard from './DraggableCard.vue';
-import { getNodeLabel } from '@/utils/node';
-import { copy } from '@/utils/others';
-import { githubJpgStorage, githubZipStorage } from '@/utils/storage';
-import { githubUrlToSelfUrl } from '@/utils/url';
-import JSON5 from 'json5';
+
+const router = useRouter();
+const route = useRoute();
 
 const props = withDefaults(
   defineProps<{
     snapshot: Snapshot;
     rootNode: RawNode;
+    focusNode?: RawNode;
     onUpdateFocusNode?: (data: RawNode) => void;
+    onUpdateTrack?: (track: { selector: Selector; nodes: RawNode[] }) => void;
   }>(),
   {
-    onUpdateFocusNode: () => () => {},
+    onUpdateFocusNode: buildEmptyFn,
+    onUpdateTrack: buildEmptyFn,
   },
 );
 
 const selectorText = shallowRef(``);
-const selectorResults = shallowReactive<
-  {
-    selector: string | Selector;
-
-    results: RawNode[];
-  }[]
->([]);
-const searchBySelector = errorTry(() => {
-  if (!props.rootNode) {
-    message.error(`根节点不存在`);
+type SearchResult =
+  | {
+      key: number;
+      selector: string;
+      nodes: RawNode[];
+    }
+  | {
+      key: number;
+      selector: Selector;
+      nodes: RawNode[][];
+    };
+const selectorResults = shallowReactive<SearchResult[]>([]);
+const expandedKeys = shallowRef<number[]>([]);
+const searchSelector = (text: string) => {
+  const selector = errorWrap(
+    () => parseSelector(text),
+    (e) => {
+      if (typeof e == 'string') {
+        return e;
+      }
+      return `非法选择器`;
+    },
+  );
+  if (
+    selectorResults.find(
+      (s) =>
+        typeof s.selector == 'object' &&
+        s.selector.toString() == selector.toString(),
+    )
+  ) {
+    message.warning(`不可重复选择`);
     return;
   }
+
+  const results = selector.querySelectorTrackAll(props.rootNode);
+  if (results.length == 0) {
+    message.success(`没有选择到节点`);
+    return;
+  }
+  message.success(`选择到 ${results.length} 个节点`);
+  selectorResults.unshift({ selector, nodes: results, key: Date.now() });
+  return results.length;
+};
+const searchString = (text: string) => {
+  if (
+    selectorResults.find(
+      (s) => typeof s.selector == 'string' && s.selector.toString() == text,
+    )
+  ) {
+    message.warning(`不可重复搜索`);
+    return;
+  }
+  const results: RawNode[] = [];
+  const stack: RawNode[] = [props.rootNode];
+  while (stack.length > 0) {
+    const n = stack.pop()!;
+    if (getNodeLabel(n).includes(text)) {
+      results.push(n);
+    }
+    stack.push(...[...n.children].reverse());
+  }
+  if (results.length == 0) {
+    message.success(`没有搜索到节点`);
+    return;
+  }
+  message.success(`搜索到 ${results.length} 个节点`);
+  selectorResults.unshift({
+    selector: text,
+    nodes: results,
+    key: Date.now(),
+  });
+  return results.length;
+};
+const refreshExpandedKeys = () => {
+  const newResult = selectorResults[0];
+
+  const newNode = newResult.nodes[0];
+  if (!Array.isArray(newNode)) {
+    props.onUpdateFocusNode(newNode);
+  } else if (typeof newResult.selector == 'object' && Array.isArray(newNode)) {
+    props.onUpdateFocusNode(newNode[newResult.selector.trackIndex]);
+  }
+  const allKeys = new Set(selectorResults.map((s) => s.key));
+  const newKeys = expandedKeys.value.filter((k) => allKeys.has(k));
+  newKeys.push(newResult.key);
+  expandedKeys.value = newKeys;
+};
+const searchBySelector = errorTry(() => {
   const text = selectorText.value.trim();
   if (!text) return;
-
   if (enableSearchBySelector.value) {
-    const selector = errorWrap(() => parseSelector(text), `选择器非法`);
-    if (
-      selectorResults.find(
-        (s) =>
-          typeof s.selector == 'object' &&
-          s.selector.toString() == selector.toString(),
-      )
-    ) {
-      message.warning(`不可重复选择`);
-      return;
-    }
-
-    const results = selector.querySelectorAll(props.rootNode);
-    if (results.length == 0) {
-      message.success(`没有选择到节点`);
-      return;
-    }
-    message.success(`选择到 ${results.length} 个节点`);
-    selectorResults.unshift({ selector, results });
+    if (!searchSelector(text)) return;
   } else {
-    if (
-      selectorResults.find(
-        (s) => typeof s.selector == 'string' && s.selector.toString() == text,
-      )
-    ) {
-      message.warning(`不可重复选择`);
-      return;
-    }
-    const results: RawNode[] = [];
-    const stack: RawNode[] = [props.rootNode];
-    while (stack.length > 0) {
-      const n = stack.pop()!;
-      if (getNodeLabel(n).includes(text)) {
-        results.push(n);
-      }
-      stack.push(...[...n.children].reverse());
-    }
-    if (results.length == 0) {
-      message.success(`没有搜索到节点`);
-      return;
-    }
-    message.success(`搜索到 ${results.length} 个节点`);
-    selectorResults.unshift({ selector: text, results });
+    if (!searchString(text)) return;
+  }
+  refreshExpandedKeys();
+});
+
+onMounted(async () => {
+  await wasmLoadTask;
+  let count = 0;
+  if (route.query.gkd) {
+    count += searchSelector(base64url.decode(route.query.gkd as string)) || 0;
+  }
+  if (route.query.str) {
+    count += searchString(route.query.str as string) || 0;
+  }
+  if (count > 0) {
+    refreshExpandedKeys();
   }
 });
-const generateRules = errorTry(async (selector: Selector) => {
-  let jpgUrl = githubJpgStorage[props.snapshot.id];
-  if (jpgUrl) {
-    jpgUrl = githubUrlToSelfUrl(jpgUrl);
-  }
-  let zipUrl = githubZipStorage[props.snapshot.id];
-  if (zipUrl) {
-    zipUrl = githubUrlToSelfUrl(zipUrl);
-  }
 
-  const rule = {
-    id: props.snapshot.appId,
-    name: props.snapshot.appName,
-    groups: [
-      {
-        key: 1,
-        name: `[ChangeMe]规则名称-${dayjs().format('YYYY-MM-DD HH:mm:ss')}`,
-        desc: `[ChangeMe]本规则由GKD网页端审查工具生成`,
-        rules: [
-          {
-            activityIds: props.snapshot.activityId,
-            matches: selector.toString(),
-            exampleUrls: jpgUrl,
-            snapshotUrls: zipUrl,
-          },
-        ],
-      },
-    ],
-  };
+const generateRules = errorTry(
+  async (result: { key: number; selector: Selector; nodes: RawNode[][] }) => {
+    let jpgUrl = githubJpgStorage[props.snapshot.id];
+    if (jpgUrl) {
+      jpgUrl = githubUrlToSelfUrl(router, jpgUrl);
+    }
+    let zipUrl = githubZipStorage[props.snapshot.id];
+    if (zipUrl) {
+      zipUrl = githubUrlToSelfUrl(router, zipUrl);
+    }
 
-  copy(JSON5.stringify(rule, undefined, 2));
-});
+    const s = result.selector;
+    const t = result.nodes[0][0];
+
+    const quickFind = [
+      (t.quickFind ?? t.idQf) && t.attr.id && s.qfIdValue,
+      (t.quickFind ?? t.idQf) && t.attr.vid && s.qfVidValue,
+      (t.quickFind ?? t.textQf) && t.attr.text && s.qfTextValue,
+    ].some(Boolean);
+    const rule = {
+      id: props.snapshot.appId,
+      name: props.snapshot.appName,
+      groups: [
+        {
+          key: 1,
+          name: `[ChangeMe]规则名称-${dayjs().format('YYYY-MM-DD HH:mm:ss')}`,
+          desc: `[ChangeMe]本规则由GKD网页端审查工具生成`,
+          rules: [
+            {
+              quickFind: quickFind || undefined,
+              activityIds: props.snapshot.activityId,
+              matches: s.toString(),
+              exampleUrls: jpgUrl,
+              snapshotUrls: zipUrl,
+            },
+          ],
+        },
+      ],
+    };
+
+    copy(JSON5.stringify(rule, undefined, 2));
+  },
+);
 const enableSearchBySelector = shallowRef(true);
 const _1vw = window.innerWidth / 100;
+const hasZipId = computed(() => {
+  return githubZipStorage[props.snapshot.id];
+});
+const shareResult = (result: SearchResult) => {
+  if (!hasZipId.value) return;
+  const importUrl = new URL(
+    githubUrlToSelfUrl(router, githubZipStorage[props.snapshot.id]),
+  );
+  if (typeof result.selector == 'object') {
+    importUrl.searchParams.set(
+      'gkd',
+      base64url.encode(result.selector.toString()),
+    );
+  } else {
+    importUrl.searchParams.set('str', result.selector.toString());
+  }
+  copy(importUrl.toString());
+};
 </script>
 <template>
   <DraggableCard
     :initialValue="{ top: 75, right: Math.max(315, 12 * _1vw + 135) }"
     v-slot="{ onRef }"
-    class="z-1"
+    class="z-1 box-shadow-dim"
   >
     <div
       w-480px
@@ -146,7 +235,7 @@ const _1vw = window.innerWidth / 100;
       b-gray-200
       rounded-4px
       p-8px
-      style="min-width: max(25vw, 480px)"
+      class="min-w-[calc(var(--gkd-width)*0.3)]"
     >
       <div flex m-b-4px>
         <NRadioGroup v-model:value="enableSearchBySelector">
@@ -167,11 +256,7 @@ const _1vw = window.innerWidth / 100;
         <NButton @click="searchBySelector">
           <template #icon>
             <NIcon>
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                xmlns:xlink="http://www.w3.org/1999/xlink"
-                viewBox="0 0 32 32"
-              >
+              <svg viewBox="0 0 32 32">
                 <path
                   d="M29 27.586l-7.552-7.552a11.018 11.018 0 1 0-1.414 1.414L27.586 29zM4 13a9 9 0 1 1 9 9a9.01 9.01 0 0 1-9-9z"
                   fill="currentColor"
@@ -182,37 +267,41 @@ const _1vw = window.innerWidth / 100;
         </NButton>
       </NInputGroup>
       <div p-5px></div>
-      <NCollapse>
+      <NCollapse v-model:expandedNames="expandedKeys">
         <NCollapseItem
-          v-for="(selectorResult, index) in selectorResults"
-          :key="selectorResult.selector.toString()"
+          v-for="(result, index) in selectorResults"
+          :key="result.key"
+          :name="result.key"
         >
           <template #header>
             <span
-              v-if="selectorResult.results.length > 1"
+              v-if="result.nodes.length > 1"
               underline
               decoration-1
               m-r-4px
               title="查询数量"
             >
-              {{ selectorResult.results.length }}
+              {{ result.nodes.length }}
             </span>
             <span
               break-all
               :title="
-                typeof selectorResult.selector == 'object'
-                  ? `选择器`
-                  : `搜索字符`
+                typeof result.selector == 'object' ? `选择器` : `搜索字符`
               "
             >
-              {{ selectorResult.selector.toString() }}
+              {{ result.selector.toString() }}
             </span>
           </template>
           <template #header-extra>
             <NButton
               size="small"
-              v-if="typeof selectorResult.selector == 'object'"
-              @click.stop="generateRules(selectorResult.selector as Selector)"
+              v-if="
+                typeof result.selector == 'object' && result.selector.canCopy
+              "
+              @click.stop="
+                // @ts-ignore
+                generateRules(result)
+              "
               title="复制规则"
             >
               <template #icon>
@@ -226,7 +315,33 @@ const _1vw = window.innerWidth / 100;
                 </NIcon>
               </template>
             </NButton>
-            <div p-l-8px></div>
+            <div p-l-4px></div>
+            <NButton
+              v-if="hasZipId"
+              size="small"
+              :title="
+                typeof result.selector == 'object'
+                  ? `复制查询链接`
+                  : `复制搜索链接`
+              "
+              @click.stop="shareResult(result)"
+            >
+              <template #icon>
+                <NIcon>
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    xmlns:xlink="http://www.w3.org/1999/xlink"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81c1.66 0 3-1.34 3-3s-1.34-3-3-3s-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65c0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z"
+                      fill="currentColor"
+                    ></path>
+                  </svg>
+                </NIcon>
+              </template>
+            </NButton>
+            <div p-l-4px></div>
             <NButton
               size="small"
               @click.stop="selectorResults.splice(index, 1)"
@@ -248,14 +363,63 @@ const _1vw = window.innerWidth / 100;
           <NSpace
             style="max-height: 400px; overflow-y: scroll; padding-bottom: 10px"
           >
-            <NButton
-              v-for="resultNode in selectorResult.results"
-              :key="resultNode.id"
-              @click="onUpdateFocusNode(resultNode)"
-              size="small"
+            <template
+              v-if="
+                typeof result.selector == 'string' ||
+                result.selector.tracks.length <= 1
+              "
             >
-              {{ getNodeLabel(resultNode) }}
-            </NButton>
+              <NButton
+                v-for="resultNode in result.nodes.map((r) =>
+                  Array.isArray(r) ? r[0] : r,
+                )"
+                :key="resultNode.id"
+                @click="onUpdateFocusNode(resultNode)"
+                size="small"
+                :class="{ 'color-[#00F]': resultNode === focusNode }"
+              >
+                {{ getNodeLabel(resultNode) }}
+              </NButton>
+            </template>
+            <template v-else>
+              <NButtonGroup
+                v-for="(trackNodes, index) in result.nodes.map((r) =>
+                  Array.isArray(r) ? r : [r],
+                )"
+                :key="index"
+              >
+                <NButton
+                  size="small"
+                  @click="
+                    onUpdateTrack({
+                      nodes: trackNodes,
+                      selector: result.selector,
+                    })
+                  "
+                >
+                  <NIcon>
+                    <svg viewBox="0 0 24 24">
+                      <path
+                        fill="currentColor"
+                        d="M5 21V8.825Q4.125 8.5 3.563 7.738T3 6q0-1.25.875-2.125T6 3q1.25 0 2.125.875T9 6q0 .975-.562 1.738T7 8.825V19h4V3h8v12.175q.875.325 1.438 1.088T21 18q0 1.25-.875 2.125T18 21q-1.25 0-2.125-.875T15 18q0-.975.563-1.75T17 15.175V5h-4v16zM6 7q.425 0 .713-.288T7 6q0-.425-.288-.712T6 5q-.425 0-.712.288T5 6q0 .425.288.713T6 7m12 12q.425 0 .713-.288T19 18q0-.425-.288-.712T18 17q-.425 0-.712.288T17 18q0 .425.288.713T18 19m0-1"
+                      />
+                    </svg>
+                  </NIcon>
+                </NButton>
+                <NButton
+                  @click="
+                    onUpdateFocusNode(trackNodes[result.selector.trackIndex])
+                  "
+                  size="small"
+                  :class="{
+                    'color-[#00F]':
+                      trackNodes[result.selector.trackIndex] === focusNode,
+                  }"
+                >
+                  {{ getNodeLabel(trackNodes[result.selector.trackIndex]) }}
+                </NButton>
+              </NButtonGroup>
+            </template>
           </NSpace>
         </NCollapseItem>
       </NCollapse>

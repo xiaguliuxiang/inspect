@@ -1,8 +1,9 @@
 <script setup lang="tsx">
 import { getDevice, getNodeLabel } from '@/utils/node';
-import { copy } from '@/utils/others';
+import { buildEmptyFn, copy, delay } from '@/utils/others';
 import type { RawNode, Snapshot } from '@/utils/types';
 import {
+  NEllipsis,
   NTable,
   NTbody,
   NTd,
@@ -10,55 +11,53 @@ import {
   NThead,
   NTr,
   NTree,
-  NEllipsis,
-  type TreeInst,
-  type TreeOption,
 } from 'naive-ui';
-import { HTMLAttributes, nextTick, shallowRef, watchEffect } from 'vue';
+import type { TreeInst } from 'naive-ui';
+import { nextTick, shallowRef, watch } from 'vue';
+import type { HTMLAttributes } from 'vue';
 
 const props = withDefaults(
   defineProps<{
     snapshot: Snapshot;
     rootNode: RawNode;
     focusNode?: RawNode;
+    focusCount: number;
     onUpdateFocusNode?: (data: RawNode) => void;
   }>(),
   {
-    onUpdateFocusNode: () => () => {},
+    onUpdateFocusNode: buildEmptyFn,
   },
 );
 
-const defaultExpandedKeys = shallowRef<number[]>([]);
-watchEffect(async () => {
+const expandedKeys = shallowRef<number[]>([]);
+watch([() => props.focusNode, () => props.focusCount], async () => {
   if (!props.focusNode) return;
   const key = props.focusNode.id;
-  let n = props.focusNode.parent;
-  if (!n) {
+  nextTick().then(async () => {
+    await delay(100);
+    if (key === props.focusNode?.id) {
+      treeRef.value?.scrollTo({ key, behavior: 'smooth', debounce: true });
+    }
+  });
+  let parent = props.focusNode.parent;
+  if (!parent) {
     return;
   }
-  const s = new Set(defaultExpandedKeys.value);
-  while (n) {
-    s.add(n.id);
-    n = n.parent;
+  const s = new Set(expandedKeys.value);
+  while (parent) {
+    s.add(parent.id);
+    parent = parent.parent;
   }
-  if (s.size == defaultExpandedKeys.value.length) {
+  if (
+    s.size == expandedKeys.value.length &&
+    expandedKeys.value.every((v) => s.has(v))
+  ) {
     return;
   }
-  defaultExpandedKeys.value = [...s];
-  await nextTick();
-  treeRef.value?.scrollTo({ key });
+  expandedKeys.value = [...s];
 });
 
 const treeRef = shallowRef<TreeInst>();
-
-const updateCheckedKeys = (
-  keys: Array<string | number>,
-  options: Array<TreeOption | null>,
-  meta: {
-    node: TreeOption | null;
-    action: 'check' | 'uncheck';
-  },
-) => {};
 
 const treeFilter = (pattern: string, node: RawNode) => {
   return node.id === props.focusNode?.id;
@@ -66,12 +65,14 @@ const treeFilter = (pattern: string, node: RawNode) => {
 const treeNodeProps = (info: {
   option: RawNode;
 }): HTMLAttributes & Record<string, unknown> => {
+  const qf = info.option.idQf || info.option.textQf || info.option.quickFind;
   return {
     onClick: () => {
       props.onUpdateFocusNode(info.option);
     },
     style: {
-      color: info.option.id == props.focusNode?.id ? `#00F` : void 0,
+      color: info.option.id == props.focusNode?.id ? `#00F` : undefined,
+      fontWeight: qf ? `bold` : undefined,
     },
   };
 };
@@ -91,7 +92,6 @@ const renderLabel = (info: {
       size="small"
       striped
       :singleLine="false"
-      class="table-fixed"
       :themeOverrides="{
         thPaddingSmall: '2px 4px',
         tdPaddingSmall: '2px 4px',
@@ -99,23 +99,27 @@ const renderLabel = (info: {
     >
       <NThead>
         <NTr>
-          <NTh class="w-140px"> Device </NTh>
-          <NTh class="w-100px"> Name </NTh>
-          <NTh class="w-100px"> VersionName </NTh>
-          <NTh class="w-100px"> VersionCode </NTh>
-          <NTh class="w-150px"> AppId </NTh>
-          <NTh> ActivityId </NTh>
-          <NTh class="w-175px"> 操作 </NTh>
+          <NTh> 设备 </NTh>
+          <NTh> GKD </NTh>
+          <NTh> 应用名称 </NTh>
+          <NTh> 版本名称 </NTh>
+          <NTh> 版本代码 </NTh>
+          <NTh> 应用ID </NTh>
+          <NTh> 界面ID </NTh>
+          <NTh> 操作 </NTh>
         </NTr>
       </NThead>
       <NTbody>
         <NTr>
-          <NTd class="whitespace-nowrap">
+          <NTd class="whitespace-nowrap w-0">
             {{
               `${getDevice(snapshot).manufacturer} Android ${
                 getDevice(snapshot).release || ``
               }`
             }}
+          </NTd>
+          <NTd class="whitespace-nowrap">
+            {{ getDevice(snapshot).gkdVersionName || '1.6.4' }}
           </NTd>
           <NTd class="whitespace-nowrap" @click="copy(snapshot.appName)">
             <NEllipsis>
@@ -135,12 +139,18 @@ const renderLabel = (info: {
               {{ snapshot.appVersionCode }}
             </NEllipsis>
           </NTd>
-          <NTd class="whitespace-nowrap" @click="copy(snapshot.appId)">
+          <NTd
+            class="whitespace-nowrap max-w-[max(12vw,180px)]"
+            @click="copy(snapshot.appId)"
+          >
             <NEllipsis>
               {{ snapshot.appId }}
             </NEllipsis>
           </NTd>
-          <NTd @click="copy(snapshot.activityId)" class="break-words">
+          <NTd
+            @click="copy(snapshot.activityId)"
+            class="break-words max-w-[max(15vw,200px)] text-left direction-rtl"
+          >
             <NEllipsis>
               {{ snapshot.activityId }}
             </NEllipsis>
@@ -155,14 +165,12 @@ const renderLabel = (info: {
       ref="treeRef"
       virtualScroll
       showLine
-      @update:checked-keys="updateCheckedKeys"
       keyField="id"
-      :defaultExpandedKeys="defaultExpandedKeys"
+      v-model:expandedKeys="expandedKeys"
       :data="[rootNode as any]"
       :filter="(treeFilter as any)"
       :nodeProps="(treeNodeProps as any)"
       :renderLabel="(renderLabel as any)"
-      style="--n-border-color: rgb(239, 239, 245)"
     />
   </div>
 </template>
