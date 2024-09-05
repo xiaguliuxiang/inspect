@@ -1,11 +1,11 @@
 import { saveAs } from 'file-saver';
 import JSZip from 'jszip';
 import pLimit from 'p-limit';
-import { uploadPoliciesAssets } from './github';
+import { uploadAsset } from './github';
 import { delay } from './others';
 import {
   githubJpgStorage,
-  githubZipStorage,
+  importStorage,
   screenshotStorage,
   urlStorage,
 } from './storage';
@@ -81,29 +81,26 @@ export const batchZipDownloadZip = async (snapshots: Snapshot[]) => {
 export const exportSnapshotAsJpgUrl = async (snapshot: Snapshot) => {
   return (
     githubJpgStorage[snapshot.id] ??
-    uploadPoliciesAssets(
+    uploadAsset(
       await snapshotAsJpg(snapshot).then((r) => r.arrayBuffer()),
       'file.jpg',
-      'image/jpeg',
     ).then((r) => {
-      // urlStorage[r.href] = snapshot.id;
       githubJpgStorage[snapshot.id] = r.href;
       return r.href;
     })
   );
 };
 
-export const exportSnapshotAsZipUrl = async (snapshot: Snapshot) => {
+export const exportSnapshotAsImportId = async (snapshot: Snapshot) => {
   return (
-    githubZipStorage[snapshot.id] ??
-    uploadPoliciesAssets(
+    importStorage[snapshot.id] ||
+    uploadAsset(
       await snapshotAsZip(snapshot).then((r) => r.arrayBuffer()),
       'file.zip',
-      'application/x-zip-compressed',
     ).then((r) => {
-      githubZipStorage[snapshot.id] = r.href;
-      urlStorage[r.href] = snapshot.id;
-      return r.href;
+      importStorage[snapshot.id] = r.id;
+      urlStorage[r.id] = snapshot.id;
+      return r.id;
     })
   );
 };
@@ -125,12 +122,22 @@ export const batchCreateZipUrl = async (snapshots: Snapshot[]) => {
   const limit = pLimit(3);
   return (
     await Promise.allSettled(
-      snapshots.map((s) => limit(() => exportSnapshotAsZipUrl(s))),
+      snapshots.map((s) => limit(() => exportSnapshotAsImportId(s))),
     )
-  ).reduce<string[]>((p, c) => {
+  ).reduce<number[]>((p, c) => {
     if (c.status == 'fulfilled') {
       p.push(c.value);
     }
     return p;
   }, []);
+};
+
+export const detectSnapshot = async (importId: number | string) => {
+  if (!Number.isSafeInteger(+importId)) {
+    return;
+  }
+  if (urlStorage[importId]) {
+    return;
+  }
+  await fetch(`https://detect.gkd.li/api/detectSnapshot?importId=` + importId);
 };

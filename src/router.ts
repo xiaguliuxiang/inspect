@@ -1,4 +1,5 @@
 import { toValidURL } from '@/utils/check';
+import { getImportFileUrl } from '@/utils/url';
 import type { RouteRecordRedirectOption } from 'vue-router';
 import { createRouter, createWebHistory } from 'vue-router';
 
@@ -7,12 +8,11 @@ const redirectImport: RouteRecordRedirectOption = (to) => {
   if (!github_asset_id) {
     return { path: '/404' };
   }
-  const url = `https://github.com/gkd-kit/inspect/files/${github_asset_id}/file.zip`;
   return {
     path: '/i',
     query: {
       ...to.query,
-      url,
+      url: getImportFileUrl(github_asset_id),
     },
   };
 };
@@ -22,12 +22,12 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      component: () => import('@/views/HomePage.vue'),
+      component: () => import('@/views/home/HomePage.vue'),
     },
     {
       path: '/snapshot/:snapshotId',
       name: 'snapshot',
-      component: () => import('@/views/SnapshotPage.vue'),
+      component: () => import('@/views/snapshot/SnapshotPage.vue'),
     },
     {
       path: '/i',
@@ -95,12 +95,12 @@ const router = createRouter({
       },
     },
     {
-      path: '/404',
-      component: () => import('@/views/_404Page.vue'),
+      path: '/selector',
+      component: () => import('@/views/SelectorPage.vue'),
     },
     {
       path: '/:pathMatch(.*)*',
-      redirect: '/404',
+      component: () => import('@/views/_404Page.vue'),
     },
   ],
 });

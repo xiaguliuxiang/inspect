@@ -1,12 +1,37 @@
 import dayjs from 'dayjs';
-import { NEllipsis } from 'naive-ui';
 import type { TableBaseColumn } from 'naive-ui/es/data-table/src/interface';
-import { shallowReactive } from 'vue';
-import { getDevice } from './node';
+import { vRect } from './directives';
+import { getAppInfo, getDevice } from './node';
 import { copy } from './others';
-import { useAutoWrapWidthColumn } from './size';
 import { importTimeStorage } from './storage';
 import type { Snapshot } from './types';
+import { withDirectives } from 'vue';
+
+const useAutoWrapWidthColumn = <T,>(data: TableBaseColumn<T>) => {
+  const currentCol = shallowReactive<TableBaseColumn<T>>({
+    ...data,
+    render(rowData, rowIndex) {
+      return withDirectives(
+        <span class="whitespace-nowrap">
+          {data.render?.(rowData, rowIndex)}
+        </span>,
+        [
+          [
+            vRect,
+            (size: DOMRect) => {
+              currentCol.width = Math.max(
+                Math.ceil(size.width + 16), // 16 是 n-data-table-td 的 左右内边距
+                (currentCol.width as number) || 0,
+                Number(currentCol.minWidth || 0),
+              );
+            },
+          ],
+        ],
+      );
+    },
+  });
+  return currentCol;
+};
 
 export const renderDevice = (row: Snapshot) => {
   return `${getDevice(row).manufacturer} Android${
@@ -64,17 +89,17 @@ export const useSnapshotColumns = () => {
     title: `应用名称`,
     filterMultiple: true,
     filter(value, row) {
-      return value.toString() == row.appName;
+      return value.toString() == getAppInfo(row).name;
     },
     cellProps(row) {
       return {
         onClick() {
-          copy(row.appName);
+          copy(getAppInfo(row).name);
         },
       };
     },
     render(row) {
-      return row.appName;
+      return getAppInfo(row).name;
     },
   });
   const appIdCol = useAutoWrapWidthColumn<Snapshot>({
@@ -97,7 +122,7 @@ export const useSnapshotColumns = () => {
     title: `版本代码`,
     minWidth: 150,
     render(row) {
-      return row.appVersionCode;
+      return getAppInfo(row).versionCode;
     },
   });
   const appVersionNameCol = useAutoWrapWidthColumn<Snapshot>({
@@ -105,7 +130,7 @@ export const useSnapshotColumns = () => {
     title: `版本号`,
     minWidth: 150,
     render(row) {
-      return <NEllipsis>{row.appVersionName}</NEllipsis>;
+      return <NEllipsis>{getAppInfo(row).versionName}</NEllipsis>;
     },
   });
 

@@ -2,8 +2,7 @@
 import { getNodeLabel } from '@/utils/node';
 import { buildEmptyFn } from '@/utils/others';
 import type { RawNode } from '@/utils/types';
-import { NCard, NSpace, NButton } from 'naive-ui';
-import DraggableCard from './DraggableCard.vue';
+import DraggableCard from '@/components/DraggableCard.vue';
 
 const props = withDefaults(
   defineProps<{
@@ -29,7 +28,7 @@ const left = _1vw * 25.5;
     :initialValue="{ top: 215, left }"
     v-slot="{ onRef }"
     class="z-2 box-shadow-dim w-420px"
-    :disabled="!focusNodes"
+    :show="!!focusNodes"
   >
     <NCard v-if="focusNodes" size="small" closable @close="onClose">
       <template #header>

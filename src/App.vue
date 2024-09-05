@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { NConfigProvider, dateZhCN, zhCN } from 'naive-ui';
+import { dateZhCN, zhCN } from 'naive-ui';
 import { RouterView } from 'vue-router';
 import ErrorDlg from './components/ErrorDlg.vue';
 </script>
@@ -26,7 +26,8 @@ import ErrorDlg from './components/ErrorDlg.vue';
     min-width: auto;
   }
 }
-.gkd_code {
+.gkd_code,
+[gkd_code] {
   font-family: v-mono, SFMono-Regular, Menlo, Consolas, Courier, monospace !important;
 }
 
@@ -50,5 +51,17 @@ import ErrorDlg from './components/ErrorDlg.vue';
       0 6px 12px 0 rgba(0, 0, 0, 0.16),
       0 9px 18px 8px rgba(0, 0, 0, 0.1);
   }
+}
+
+// 移除 inline 元素的空白间隙
+img,
+svg,
+video,
+canvas,
+audio,
+iframe,
+embed,
+object {
+  display: block;
 }
 </style>

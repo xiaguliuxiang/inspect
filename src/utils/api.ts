@@ -1,4 +1,3 @@
-import { shallowRef } from 'vue';
 import { message } from './discrete';
 import { enhanceFetch } from './fetch';
 import type { Device, RpcError, Snapshot } from './types';
@@ -93,6 +92,7 @@ export const useDeviceApi = (initOrigin?: string) => {
       selector: string;
       action?: string;
       quickFind?: boolean;
+      fastQuery?: boolean;
     }) => {
       return jsonRpc<{ message: string; action: string; result: boolean }>(
         `execSelector`,

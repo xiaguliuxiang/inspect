@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onUnmounted, shallowReactive, shallowRef, watch } from 'vue';
+import { useDragMove } from '@/utils/draggable';
 
 const props = withDefaults(
   defineProps<{
@@ -8,10 +8,14 @@ const props = withDefaults(
       right?: number;
       top?: number;
       bottom?: number;
+
+      width?: number;
     };
-    disabled?: boolean;
+    minWidth?: number;
+    sizeDraggable?: boolean;
+    show?: boolean;
   }>(),
-  { initialValue: () => ({}) },
+  { initialValue: () => ({}), show: true },
 );
 
 const isLeft = props.initialValue.left !== void 0;
@@ -21,20 +25,48 @@ const prevOffset = {
   y: (isTop ? props.initialValue.top : props.initialValue.bottom) ?? 0,
 };
 
+const leftDragBar = useDragMove((dx) => {
+  const w =
+    (props.initialValue.width || 0) +
+    rightDragBar.offset.x +
+    -leftDragBar.offset.x -
+    dx;
+  return (props.minWidth || 0) < w;
+});
+const rightDragBar = useDragMove((dx) => {
+  const w =
+    (props.initialValue.width || 0) +
+    rightDragBar.offset.x +
+    dx -
+    leftDragBar.offset.x;
+
+  return (props.minWidth || 0) < w;
+});
+
 const offset = shallowReactive({ ...prevOffset });
 const currentStyle = computed(() => {
-  const xStyle = isLeft ? `left:${offset.x}px;` : `right:${offset.x}px;`;
+  const width =
+    (props.initialValue.width || 0) +
+    rightDragBar.offset.x -
+    leftDragBar.offset.x;
+  const widthStyle = props.initialValue.width ? `width:${width}px;` : ``;
   const yStyle = isTop ? `top:${offset.y}px;` : `bottom:${offset.y}px;`;
-  return xStyle + yStyle;
+  if (isLeft) {
+    return `left:${offset.x - leftDragBar.offset.x}px;` + yStyle + widthStyle;
+  } else {
+    return `right:${offset.x - rightDragBar.offset.x}px;` + yStyle + widthStyle;
+  }
 });
 /**
  * it will be PointerEvent when moving
  */
 let prevEv: PointerEvent | undefined = undefined;
+const moved = shallowRef(false);
 const startMove = (ev: PointerEvent) => {
   prevEv = ev;
   prevOffset.x = offset.x;
   prevOffset.y = offset.y;
+  moved.value = false;
 };
 const move = (ev: PointerEvent) => {
   if (!target.value || !prevEv) return;
@@ -44,6 +76,8 @@ const move = (ev: PointerEvent) => {
 
   offset.x = prevOffset.x + (isLeft ? dx : -dx);
   offset.y = prevOffset.y + (isTop ? dy : -dy);
+
+  moved.value = true;
 };
 const endMove = () => {
   prevEv = undefined;
@@ -55,9 +89,10 @@ const preventSelection = (ev: Event) => {
     ev.preventDefault();
   }
 };
-const transitions = [`transition-top,bottom,left,right-500`];
+const transition = `transition-top,bottom,left,right-500`;
 const windowEndMove = () => {
-  if (!target.value) return;
+  if (!target.value || !prevEv) return;
+  endMove();
   const { top, bottom, left, right } = target.value.getBoundingClientRect();
   if (
     right < 0 ||
@@ -68,22 +103,23 @@ const windowEndMove = () => {
     // isOutsideViewport
     offset.x = prevOffset.x;
     offset.y = prevOffset.y;
-    endMove();
 
     const boxDiv = box.value;
     if (boxDiv) {
-      boxDiv.classList.add(...transitions);
+      boxDiv.classList.add(transition);
       setTimeout(() => {
-        boxDiv.classList.remove(...transitions);
+        boxDiv.classList.remove(transition);
       }, 550);
     }
   }
 };
 
 // move 事件应该给 window. 如果给目标元素,容易出现鼠标移速过快无法跟随的bug
-window.addEventListener('pointermove', move);
-window.addEventListener('pointerup', windowEndMove);
-document.addEventListener('selectstart', preventSelection);
+onMounted(() => {
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', windowEndMove);
+  document.addEventListener('selectstart', preventSelection);
+});
 onUnmounted(() => {
   window.removeEventListener('pointermove', move);
   window.removeEventListener('pointerup', windowEndMove);
@@ -115,14 +151,36 @@ const updateTarget = (arg: unknown) => {
 };
 </script>
 <template>
-  <Teleport to="#app" :disabled="disabled">
+  <Teleport to="#app">
     <div
+      v-if="show"
       fixed
       ref="box"
       :style="[$attrs.style as string, currentStyle]"
       :class="$attrs.class"
     >
-      <slot :onRef="updateTarget"></slot>
+      <slot :onRef="updateTarget" :moved="moved"></slot>
+
+      <template v-if="sizeDraggable">
+        <div
+          :ref="leftDragBar.target"
+          absolute
+          right-full
+          top-0
+          bottom-0
+          w-5px
+          cursor-ew-resize
+        ></div>
+        <div
+          :ref="rightDragBar.target"
+          absolute
+          left-full
+          top-0
+          bottom-0
+          w-5px
+          cursor-ew-resize
+        ></div>
+      </template>
     </div>
   </Teleport>
 </template>

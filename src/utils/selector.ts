@@ -1,13 +1,31 @@
+import { store } from '@/store';
 import {
-  MultiplatformSelector,
-  MultiplatformTransform,
+  Context,
+  FastQuery,
+  getBooleanInvoke,
+  getIntInvoke,
+  getStringAttr,
+  getStringInvoke,
+  initDefaultTypeInfo,
+  MatchOption,
+  MismatchExpressionTypeException,
+  MismatchOperatorTypeException,
+  MismatchParamTypeException,
+  Selector,
+  Transform,
+  UnknownIdentifierException,
+  UnknownIdentifierMethodException,
+  UnknownIdentifierMethodParamsException,
+  UnknownMemberException,
+  UnknownMemberMethodException,
+  UnknownMemberMethodParamsException,
   updateWasmToMatches,
 } from '@gkd-kit/selector';
-import type { RawNode } from './types';
 import matchesInstantiate from '@gkd-kit/wasm_matches';
 import matchesWasmUrl from '@gkd-kit/wasm_matches/dist/mod.wasm?url';
-import store from './store';
+import { isRawNode } from './node';
 import { settingsStorage } from './storage';
+import type { RawNode } from './types';
 
 export const wasmLoadTask = matchesInstantiate(fetch(matchesWasmUrl))
   .then((mod) => {
@@ -26,24 +44,73 @@ export const wasmLoadTask = matchesInstantiate(fetch(matchesWasmUrl))
     }
   });
 
-const transform = new MultiplatformTransform<RawNode>(
-  (node, name) => {
-    const [key, subKey] = name.split('.');
-    if (subKey) {
-      // @ts-ignore
-      return node.attr[key]?.[subKey];
+const getNodeAttr = (target: RawNode, name: string) => {
+  if (name == '_id') return target.id;
+  if (name == '_pid') return target.pid;
+  if (name == 'parent') return target.parent ?? null;
+  return Reflect.get(target.attr, name) ?? null;
+};
+
+const getNodeInvoke = (target: RawNode, name: string, args: any) => {
+  if (name === 'getChild') {
+    const i = args.asJsReadonlyArrayView()[0];
+    return target.children[i] ?? null;
+  }
+  return null;
+};
+
+const transform = Transform.Companion.multiplatformBuild<RawNode>(
+  (target, name) => {
+    if (typeof target === 'string') {
+      return getStringAttr(target, name);
     }
-    // @ts-ignore
-    return node.attr[key];
+    if (target instanceof Context) {
+      if (name === 'prev') {
+        return target.prev;
+      }
+      if (name === 'current') {
+        return target.current;
+      }
+      return getNodeAttr(target.current, name);
+    }
+    if (isRawNode(target)) {
+      return getNodeAttr(target, name);
+    }
+    return null;
+  },
+  (target, name, args) => {
+    if (typeof target === 'number') {
+      return getIntInvoke(target, name, args);
+    }
+    if (typeof target === 'boolean') {
+      return getBooleanInvoke(target, name, args);
+    }
+    if (typeof target === 'string') {
+      return getStringInvoke(target, name, args);
+    }
+    if (target instanceof Context) {
+      if (name === 'getPrev') {
+        const i = args.asJsReadonlyArrayView()[0];
+        if (Number.isSafeInteger(i)) {
+          return target.getPrev(i);
+        }
+        return null;
+      }
+      return getNodeInvoke(target.current, name, args);
+    }
+    if (isRawNode(target)) {
+      return getNodeInvoke(target, name, args);
+    }
+    return null;
   },
   (node) => node.attr.name,
   (node) => node.children,
   (node) => node.parent,
 );
 
-export type Selector = {
-  tracks: boolean[];
-  trackIndex: number;
+export type GkdSelector = {
+  s: Selector;
+  targetIndex: number;
   connectKeys: string[];
   canQf: boolean;
   qfIdValue: string | null | undefined;
@@ -58,117 +125,105 @@ export type Selector = {
 
 export type ConnectKeyType = '+' | '-' | '>' | '<' | '<<';
 
-export const parseSelector = (source: string): Selector => {
-  const ms = MultiplatformSelector.Companion.parse(source);
-  for (const [name, operator, type] of ms.binaryExpressions) {
-    if (operator == '~=' && !store.wasmSupported) {
+const typeInfo = initDefaultTypeInfo(true).globalType;
+const matchOption = new MatchOption(false, false);
+
+export const parseSelector = (source: string): GkdSelector => {
+  const s = Selector.Companion.parse(source);
+  for (const exp of s.binaryExpressions) {
+    if (exp.operator.value.key == '~=' && !store.wasmSupported) {
       if (!settingsStorage.ignoreWasmWarn) {
         store.wasmErrorDlgVisible = true;
+        break;
       }
     }
-    if (!allowPropertyTypes[name]) {
-      throw `未知属性: ${name}`;
-    }
-    if (
-      type != PrimitiveValue.NullValue.type &&
-      allowPropertyTypes[name] != type
-    ) {
-      throw `非法类型: ${name}`;
-    }
   }
-  const selector: Selector = {
-    tracks: ms.tracks,
-    trackIndex: ms.trackIndex,
-    connectKeys: ms.connectKeys,
-    canQf: ms.canQf,
-    qfIdValue: ms.qfIdValue,
-    qfVidValue: ms.qfVidValue,
-    qfTextValue: ms.qfTextValue,
-    canCopy: ms.propertyNames.every((name) => allowPropertyNames.has(name)),
-    toString: () => ms.toString(),
+  checkError(s);
+  const selector: GkdSelector = {
+    s,
+    targetIndex: s.targetIndex,
+    connectKeys: s.connectWrappers.map((c) => c.segment.operator.key),
+    canQf: !!s.quickFindValue?.value,
+    qfIdValue:
+      s.quickFindValue instanceof FastQuery.Id ? s.quickFindValue.value : null,
+    qfVidValue:
+      s.quickFindValue instanceof FastQuery.Vid ? s.quickFindValue.value : null,
+    qfTextValue:
+      s.quickFindValue instanceof FastQuery.Text
+        ? s.quickFindValue.value
+        : null,
+    canCopy: !s.binaryExpressions.some((b) =>
+      b.properties.some((p) => p.startsWith('_')),
+    ),
+    toString: () => s.stringify(),
     match: (node) => {
-      return ms.match(node, transform) ?? void 0;
+      return s.match(node, transform, matchOption) ?? undefined;
     },
     querySelectorAll: (node) => {
-      return transform.querySelectorAll(node, ms);
+      return transform.querySelectorAllArray(node, s);
     },
     querySelectorTrackAll: (node) => {
-      return transform.querySelectorTrackAll(node, ms);
+      return transform
+        .querySelectorAllContextArray(node, s)
+        .map((v) => v.toArray());
     },
   };
   return selector;
 };
 
 export const checkSelector = (source: string) => {
-  return MultiplatformSelector.Companion.parseOrNull(source) != null;
+  return Selector.Companion.parseOrNull(source) != null;
 };
 
-const allowPropertyNames = new Set([
-  'id',
-  'vid',
-
-  'name',
-  'text',
-  'text.length',
-  'desc',
-  'desc.length',
-
-  'clickable',
-  'focusable',
-  'checkable',
-  'checked',
-  'editable',
-  'longClickable',
-  'visibleToUser',
-
-  'left',
-  'top',
-  'right',
-  'bottom',
-  'width',
-  'height',
-
-  'index',
-  'depth',
-  'childCount',
-]);
-
-const PrimitiveValue = {
-  StringValue: { type: 'string' },
-  IntValue: { type: 'int' },
-  BooleanValue: { type: 'boolean' },
-  NullValue: { type: 'null' },
-};
-
-const allowPropertyTypes: Record<string, string> = {
-  id: PrimitiveValue.StringValue.type,
-  vid: PrimitiveValue.StringValue.type,
-
-  name: PrimitiveValue.StringValue.type,
-  text: PrimitiveValue.StringValue.type,
-  'text.length': PrimitiveValue.IntValue.type,
-  desc: PrimitiveValue.StringValue.type,
-  'desc.length': PrimitiveValue.IntValue.type,
-
-  clickable: PrimitiveValue.BooleanValue.type,
-  focusable: PrimitiveValue.BooleanValue.type,
-  checkable: PrimitiveValue.BooleanValue.type,
-  checked: PrimitiveValue.BooleanValue.type,
-  editable: PrimitiveValue.BooleanValue.type,
-  longClickable: PrimitiveValue.BooleanValue.type,
-  visibleToUser: PrimitiveValue.BooleanValue.type,
-
-  left: PrimitiveValue.IntValue.type,
-  top: PrimitiveValue.IntValue.type,
-  right: PrimitiveValue.IntValue.type,
-  bottom: PrimitiveValue.IntValue.type,
-  width: PrimitiveValue.IntValue.type,
-  height: PrimitiveValue.IntValue.type,
-
-  index: PrimitiveValue.IntValue.type,
-  depth: PrimitiveValue.IntValue.type,
-  childCount: PrimitiveValue.IntValue.type,
-
-  _id: PrimitiveValue.IntValue.type,
-  _pid: PrimitiveValue.IntValue.type,
+const checkError = (s: Selector) => {
+  const error = s.checkType(typeInfo);
+  if (error != null) {
+    if (error instanceof MismatchExpressionTypeException) {
+      throw new Error('不匹配表达式类型:' + error.exception.stringify(), {
+        cause: error,
+      });
+    }
+    if (error instanceof MismatchOperatorTypeException) {
+      throw new Error('不匹配操作符类型:' + error.exception.stringify(), {
+        cause: error,
+      });
+    }
+    if (error instanceof MismatchParamTypeException) {
+      throw new Error('不匹配参数类型:' + error.call.stringify(), {
+        cause: error,
+      });
+    }
+    if (error instanceof UnknownIdentifierException) {
+      throw new Error('未知属性:' + error.value.stringify(), {
+        cause: error,
+      });
+    }
+    if (error instanceof UnknownIdentifierMethodException) {
+      throw new Error('未知方法:' + error.value.stringify(), {
+        cause: error,
+      });
+    }
+    if (error instanceof UnknownMemberException) {
+      throw new Error('未知属性:' + error.value.stringify(), {
+        cause: error,
+      });
+    }
+    if (error instanceof UnknownMemberMethodException) {
+      throw new Error('未知方法:' + error.value.property, {
+        cause: error,
+      });
+    }
+    if (error instanceof UnknownIdentifierMethodParamsException) {
+      throw new Error('未知方法参数:' + error.value.stringify(), {
+        cause: error,
+      });
+    }
+    if (error instanceof UnknownMemberMethodParamsException) {
+      throw new Error('未知方法参数:' + error.value.stringify(), {
+        cause: error,
+      });
+    }
+    // @ts-ignore
+    throw new Error('未知错误:' + error.message, { cause: error });
+  }
 };

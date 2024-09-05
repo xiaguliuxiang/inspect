@@ -1,6 +1,5 @@
 <script lang="tsx" setup>
 import ActionCard from '@/components/ActionCard.vue';
-import BuildShareDlg from '@/components/BuildShareDlg.vue';
 import { toValidURL } from '@/utils/check';
 import { showTextDLg, waitShareAgree } from '@/utils/dialog';
 import { dialog } from '@/utils/discrete';
@@ -11,6 +10,7 @@ import {
   batchZipDownloadZip,
 } from '@/utils/export';
 import { importFromLocal, importFromNetwork } from '@/utils/import';
+import { getAppInfo } from '@/utils/node';
 import {
   settingsStorage,
   shallowSnapshotStorage,
@@ -20,33 +20,9 @@ import { renderDevice, useSnapshotColumns } from '@/utils/table';
 import { useTask } from '@/utils/task';
 import type { Snapshot } from '@/utils/types';
 import { githubUrlToSelfUrl } from '@/utils/url';
-import {
-  NButton,
-  NDataTable,
-  NIcon,
-  NInput,
-  NInputGroup,
-  NModal,
-  NPopover,
-  NSpace,
-  NSwitch,
-  NCheckbox,
-  type PaginationProps,
-  type DataTableColumns,
-} from 'naive-ui';
+import type { DataTableColumns, PaginationProps } from 'naive-ui';
 import type { SortState } from 'naive-ui/es/data-table/src/interface';
-import {
-  computed,
-  onMounted,
-  reactive,
-  shallowReactive,
-  shallowRef,
-  watch,
-  watchEffect,
-} from 'vue';
-import { RouterLink, useRouter } from 'vue-router';
-
-const router = useRouter();
+import BuildShareDlg from './BuildShareDlg.vue';
 
 const snapshots = shallowRef<Snapshot[]>([]);
 const loading = shallowRef(true);
@@ -70,7 +46,7 @@ const filterSnapshots = computed(() => {
   if (!actualQuery) return snapshots.value;
   return snapshots.value.filter((s) => {
     return (
-      (s.appName || ``).includes(actualQuery) ||
+      (getAppInfo(s).name || ``).includes(actualQuery) ||
       (s.appId || ``).includes(actualQuery) ||
       (s.activityId || ``).includes(actualQuery)
     );
@@ -111,7 +87,7 @@ watchEffect(() => {
 
 watchEffect(() => {
   const set = filterSnapshots.value.reduce(
-    (p, c) => (p.add(c.appName), p),
+    (p, c) => (p.add(getAppInfo(c).name), p),
     new Set<string>(),
   );
   if (set.size <= 1) {
@@ -155,7 +131,7 @@ const columns: DataTableColumns<Snapshot> = reactive([
     key: `actions`,
     title: `操作`,
     fixed: 'right',
-    width: `255px`,
+    width: `160px`,
     render(row) {
       return <ActionCard snapshot={row} onDelete={updateSnapshots} />;
     },
@@ -240,16 +216,14 @@ const batchShareJpgUrl = useTask(async () => {
   await waitShareAgree();
   const pngUrls = await batchCreateJpgUrl(await checkedSnapshots());
   showTextDLg({
-    content:
-      pngUrls.map((s) => githubUrlToSelfUrl(router, s)).join(`\n`) + `\n`,
+    content: pngUrls.map((s) => githubUrlToSelfUrl(s)).join(`\n`) + `\n`,
   });
 });
 const batchShareZipUrl = useTask(async () => {
   await waitShareAgree();
   const zipUrls = await batchCreateZipUrl(await checkedSnapshots());
   showTextDLg({
-    content:
-      zipUrls.map((s) => githubUrlToSelfUrl(router, s)).join(`\n`) + `\n`,
+    content: zipUrls.map((s) => location.origin + '/i/' + s).join(`\n`) + `\n`,
   });
 });
 
@@ -328,10 +302,10 @@ const settingsDlgShow = shallowRef(false);
         </template>
       </NSpace>
       <div flex-1></div>
-      <NSpace>
-        <NButton title="设置" @click="settingsDlgShow = true">
+      <div flex gap-24px items-center pr-8px>
+        <NButton text title="设置" @click="settingsDlgShow = true">
           <template #icon>
-            <NIcon>
+            <NIcon :size="24">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 xmlns:xlink="http://www.w3.org/1999/xlink"
@@ -347,30 +321,18 @@ const settingsDlgShow = shallowRef(false);
         </NButton>
         <NPopover>
           <template #trigger>
-            <NButton>
+            <NButton text>
               <template #icon>
-                <NIcon>
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    xmlns:xlink="http://www.w3.org/1999/xlink"
-                    viewBox="0 0 512 512"
-                  >
+                <NIcon :size="24">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
                     <path
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="32"
-                      d="M256 112v288"
-                    ></path>
+                      fill="currentColor"
+                      d="M28 19H14.83l2.58-2.59L16 15l-5 5l5 5l1.41-1.41L14.83 21H28z"
+                    />
                     <path
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="32"
-                      d="M400 256H112"
-                    ></path>
+                      fill="currentColor"
+                      d="M24 14v-4a1 1 0 0 0-.29-.71l-7-7A1 1 0 0 0 16 2H6a2 2 0 0 0-2 2v24a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2h-2v2H6V4h8v6a2 2 0 0 0 2 2h6v2Zm-8-4V4.41L21.59 10Z"
+                    />
                   </svg>
                 </NIcon>
               </template>
@@ -385,50 +347,29 @@ const settingsDlgShow = shallowRef(false);
             </NButton>
           </NSpace>
         </NPopover>
-        <RouterLink to="/device" title="连接设备">
-          <NButton>
+        <a flex href="/device" title="连接设备">
+          <NButton text>
             <template #icon>
-              <NIcon>
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  xmlns:xlink="http://www.w3.org/1999/xlink"
-                  viewBox="0 0 1024 1024"
-                >
+              <NIcon :size="24">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                   <path
-                    d="M270.1 741.7c0 23.4 19.1 42.5 42.6 42.5h48.7v120.4c0 30.5 24.5 55.4 54.6 55.4c30.2 0 54.6-24.8 54.6-55.4V784.1h85v120.4c0 30.5 24.5 55.4 54.6 55.4c30.2 0 54.6-24.8 54.6-55.4V784.1h48.7c23.5 0 42.6-19.1 42.6-42.5V346.4h-486v395.3zm357.1-600.1l44.9-65c2.6-3.8 2-8.9-1.5-11.4c-3.5-2.4-8.5-1.2-11.1 2.6l-46.6 67.6c-30.7-12.1-64.9-18.8-100.8-18.8c-35.9 0-70.1 6.7-100.8 18.8l-46.6-67.5c-2.6-3.8-7.6-5.1-11.1-2.6c-3.5 2.4-4.1 7.4-1.5 11.4l44.9 65c-71.4 33.2-121.4 96.1-127.8 169.6h486c-6.6-73.6-56.7-136.5-128-169.7zM409.5 244.1a26.9 26.9 0 1 1 26.9-26.9a26.97 26.97 0 0 1-26.9 26.9zm208.4 0a26.9 26.9 0 1 1 26.9-26.9a26.97 26.97 0 0 1-26.9 26.9zm223.4 100.7c-30.2 0-54.6 24.8-54.6 55.4v216.4c0 30.5 24.5 55.4 54.6 55.4c30.2 0 54.6-24.8 54.6-55.4V400.1c.1-30.6-24.3-55.3-54.6-55.3zm-658.6 0c-30.2 0-54.6 24.8-54.6 55.4v216.4c0 30.5 24.5 55.4 54.6 55.4c30.2 0 54.6-24.8 54.6-55.4V400.1c0-30.6-24.5-55.3-54.6-55.3z"
                     fill="currentColor"
-                  ></path>
+                    d="M18.35 14.85L16.9 13.4q.3-.275.463-.637t.162-.763t-.162-.763t-.463-.637l1.45-1.45q.575.575.875 1.313t.3 1.537t-.3 1.538t-.875 1.312m2.45 2.45l-1.4-1.4q.775-.775 1.2-1.775T21.025 12T20.6 9.875T19.4 8.1l1.4-1.4q1.075 1.05 1.65 2.425T23.025 12t-.575 2.875T20.8 17.3M7 23q-.825 0-1.412-.587T5 21V3q0-.825.588-1.412T7 1h10q.825 0 1.413.588T19 3v4h-2V6H7v12h10v-1h2v4q0 .825-.587 1.413T17 23zm0-3v1h10v-1zM7 4h10V3H7zm0 0V3zm0 16v1z"
+                  />
                 </svg>
               </NIcon>
             </template>
           </NButton>
-        </RouterLink>
-
-        <NButton v-if="0" title="创建分享" @click="shareDlgShow = true">
-          <template #icon>
-            <NIcon>
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                xmlns:xlink="http://www.w3.org/1999/xlink"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81c1.66 0 3-1.34 3-3s-1.34-3-3-3s-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65c0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z"
-                  fill="currentColor"
-                ></path>
-              </svg>
-            </NIcon>
-          </template>
-        </NButton>
-
+        </a>
         <a
+          flex
           href="https://github.com/gkd-kit/inspect"
           target="_blank"
           rel="noopener noreferrer"
         >
-          <NButton>
+          <NButton text>
             <template #icon>
-              <NIcon>
+              <NIcon :size="24">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   xmlns:xlink="http://www.w3.org/1999/xlink"
@@ -443,7 +384,7 @@ const settingsDlgShow = shallowRef(false);
             </template>
           </NButton>
         </a>
-      </NSpace>
+      </div>
     </div>
     <NDataTable
       striped

@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { settingsStorage } from '@/utils/storage';
-import store from '@/utils/store';
-
-import { NModal, NCheckbox } from 'naive-ui';
+import { store } from '@/store';
 </script>
 <template>
   <NModal

@@ -1,7 +1,6 @@
-import { onMounted, onUnmounted } from 'vue';
+import type { LocationQuery } from 'vue-router';
 import { message } from './discrete';
 import root from './root';
-import type { LocationQuery } from 'vue-router';
 
 export const obj2form = (...objs: Record<string, unknown>[]) => {
   const fd = new FormData();
@@ -49,7 +48,8 @@ export const delay = async (n = 0) => {
 
 export const copy = (() => {
   let lastText: string | void = void 0;
-  return async (text: string) => {
+  return async (text?: string) => {
+    if (!text) return;
     if (lastText === text) return;
     lastText = text;
     delay(10_000).then(() => {

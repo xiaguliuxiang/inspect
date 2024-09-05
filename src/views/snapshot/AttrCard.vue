@@ -1,9 +1,7 @@
 <script setup lang="ts">
 import { copy } from '@/utils/others';
 import type { RawNode } from '@/utils/types';
-import { NEllipsis, NIcon, NTable, NTbody, NTd, NTooltip, NTr } from 'naive-ui';
-import { computed } from 'vue';
-import DraggableCard from './DraggableCard.vue';
+import DraggableCard from '@/components/DraggableCard.vue';
 
 const props = withDefaults(defineProps<{ focusNode: RawNode }>(), {});
 
@@ -79,7 +77,7 @@ const attrs = computed(() => {
 
 <template>
   <DraggableCard
-    :initialValue="{ top: 75, right: 10 }"
+    :initialValue="{ top: 40, right: 10 }"
     v-slot="{ onRef }"
     class="box-shadow-dim"
   >
@@ -137,6 +135,7 @@ const attrs = computed(() => {
               class="w-[calc(var(--gkd-width)*0.12)]"
               :class="{
                 'text-left direction-rtl': attrx.name == 'id',
+                'opacity-50': attrx.value === null,
               }"
             >
               {{ attrx.desc }}

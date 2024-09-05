@@ -1,23 +1,14 @@
 <script setup lang="tsx">
-import { toValidURL } from '@/utils/check';
 import { loadingBar, message } from '@/utils/discrete';
+import { detectSnapshot } from '@/utils/export';
 import { gmOk } from '@/utils/gm';
 import { importFromNetwork } from '@/utils/import';
 import { delay, filterQuery } from '@/utils/others';
-import {
-  githubJpgStorage,
-  githubZipStorage,
-  snapshotStorage,
-  urlStorage,
-} from '@/utils/storage';
-import { githubImageUrlReg, githubZipUrlReg } from '@/utils/url';
-import { onMounted, shallowRef } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { importStorage, snapshotStorage, urlStorage } from '@/utils/storage';
+import { getImportFileUrl, getImportId, isValidUrl } from '@/utils/url';
 
 const route = useRoute();
 const router = useRouter();
-
-const importUrl = String(route.query.url || ``);
 
 const loading = shallowRef(true);
 const tip = shallowRef(`加载中...`);
@@ -30,8 +21,11 @@ const goToSnapshot = async (snapshotId: number) => {
   });
 };
 
+const url = String(route.query.url || ``);
+const importId = getImportId(url);
+
 onMounted(async () => {
-  if (!toValidURL(importUrl)) {
+  if (!isValidUrl(url)) {
     message.error(`非法URL参数`);
     await delay(1000);
     router.replace({
@@ -39,30 +33,32 @@ onMounted(async () => {
     });
     return;
   }
-  await delay(1000);
-  const snapshotId = urlStorage[importUrl];
-  if (snapshotId) {
-    const snapshot = await snapshotStorage.getItem(snapshotId);
-    if (snapshot) {
-      goToSnapshot(snapshotId);
-      return;
-    } else {
-      delete urlStorage[importUrl];
+  if (importId) {
+    const snapshotId = urlStorage[importId];
+    if (snapshotId) {
+      const snapshot = await snapshotStorage.getItem(snapshotId);
+      if (snapshot) {
+        goToSnapshot(snapshotId);
+        return;
+      } else {
+        delete urlStorage[importId];
+      }
     }
   }
   loadingBar.start();
   try {
-    const [result] = (await importFromNetwork(importUrl)) ?? [];
+    const [result] =
+      (await importFromNetwork(importId ? getImportFileUrl(importId) : url)) ??
+      [];
 
     if (result.status == 'fulfilled') {
       loadingBar.finish();
       const snapshot = result.value;
       if (snapshot?.id) {
-        urlStorage[importUrl] = snapshot.id;
-        if (importUrl.match(githubZipUrlReg)) {
-          githubZipStorage[snapshot.id] = importUrl;
-        } else if (importUrl.match(githubImageUrlReg)) {
-          githubJpgStorage[snapshot.id] = importUrl;
+        if (importId) {
+          detectSnapshot(importId);
+          urlStorage[importId] = snapshot.id;
+          importStorage[snapshot.id] = importId;
         }
         loading.value = false;
         await delay(500);

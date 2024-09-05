@@ -1,6 +1,6 @@
 import { GM_fetch, gmOk } from './gm';
-import store from './store';
 import { isAllowCorsUrl } from './url';
+import { store } from '@/store';
 
 export const enhanceFetch = async (
   input: RequestInfo | URL,
@@ -16,7 +16,11 @@ export const enhanceFetch = async (
     // export snapshot need
     return GM_fetch(input, init);
   } else if (options?.proxy) {
-    const proxyUrl = new URL(`https://proxy-workers.lisonge.workers.dev/`);
+    if (!u.href.startsWith('https://github.com/')) {
+      store.networkErrorDlgVisible = true;
+      throw new Error(`proxy is not supported`);
+    }
+    const proxyUrl = new URL(`https://proxy.gkd.li`);
     proxyUrl.searchParams.set(`proxyUrl`, u.href);
     const request = new Request(input, init);
     return fetch(proxyUrl, {

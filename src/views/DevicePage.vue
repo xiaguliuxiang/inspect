@@ -4,36 +4,13 @@ import { toValidURL } from '@/utils/check';
 import { message } from '@/utils/discrete';
 import { errorWrap } from '@/utils/error';
 import { delay } from '@/utils/others';
-import { checkSelector } from '@/utils/selector';
 import { screenshotStorage, snapshotStorage } from '@/utils/storage';
 import { useSnapshotColumns } from '@/utils/table';
 import { useBatchTask, useTask } from '@/utils/task';
 import type { Device, Snapshot } from '@/utils/types';
-import { useDebounceFn, useStorage, useTitle } from '@vueuse/core';
-import JSON5 from 'json5';
-import {
-  NButton,
-  NCheckbox,
-  NDataTable,
-  NIcon,
-  NInput,
-  NInputGroup,
-  NModal,
-  NSelect,
-  NSpace,
-  type DataTableColumns,
-  type PaginationProps,
-} from 'naive-ui';
+import type { DataTableColumns, PaginationProps } from 'naive-ui';
 import type { SortState } from 'naive-ui/es/data-table/src/interface';
 import pLimit from 'p-limit';
-import {
-  onMounted,
-  shallowReactive,
-  shallowRef,
-  watch,
-  watchEffect,
-} from 'vue';
-import { useRouter } from 'vue-router';
 
 const router = useRouter();
 const title = useTitle(`新设备`);
@@ -191,31 +168,27 @@ const subsText = shallowRef(``);
 const updateSubs = useTask(async () => {
   const data = errorWrap(() => JSON5.parse(subsText.value.trim()));
   if (!data) return;
-  if (device.value?.gkdVersionCode) {
-    if (data.categories || data.globalGroups || data.apps) {
-      await api.updateSubscription(data);
-    } else if (typeof data.id == 'string') {
-      await api.updateSubscription({
-        apps: [data],
-      });
-    } else if (Array.isArray(data) && typeof data[0].id == 'string') {
-      await api.updateSubscription({
-        apps: data,
-      });
-    } else if (typeof data.key == 'number') {
-      await api.updateSubscription({
-        globalGroups: [data],
-      });
-    } else if (Array.isArray(data) && typeof data[0].key == 'number') {
-      await api.updateSubscription({
-        globalGroups: data,
-      });
-    } else {
-      message.error(`无法识别的订阅文本`);
-      return;
-    }
+  if (data.categories || data.globalGroups || data.apps) {
+    await api.updateSubscription(data);
+  } else if (typeof data.id == 'string') {
+    await api.updateSubscription({
+      apps: [data],
+    });
+  } else if (Array.isArray(data) && typeof data[0].id == 'string') {
+    await api.updateSubscription({
+      apps: data,
+    });
+  } else if (typeof data.key == 'number') {
+    await api.updateSubscription({
+      globalGroups: [data],
+    });
+  } else if (Array.isArray(data) && typeof data[0].key == 'number') {
+    await api.updateSubscription({
+      globalGroups: data,
+    });
   } else {
-    await api.updateSubsApps([].concat(data));
+    message.error(`无法识别的订阅文本`);
+    return;
   }
   message.success(`修改成功`);
 });
@@ -261,16 +234,14 @@ const actionOptions: {
 ];
 const clickAction = shallowReactive({
   selector: ``,
-  selectorValid: false,
   action: 'click',
   quickFind: false,
 });
-const checkSelectorValid = useDebounceFn(() => {
-  clickAction.selectorValid = checkSelector(clickAction.selector);
-}, 500);
-watch(() => clickAction.selector.trim(), checkSelectorValid);
 const execSelector = useTask(async () => {
-  const result = await api.execSelector({ ...clickAction });
+  const result = await api.execSelector({
+    ...clickAction,
+    fastQuery: clickAction.quickFind,
+  });
   if (result.message) {
     message.success(`操作成功:` + result.message);
     return;
@@ -365,7 +336,6 @@ const placeholder = `
     positive-text="确认"
     :positiveButtonProps="{
       loading: execSelector.loading,
-      disabled: !clickAction.selectorValid,
       onClick() {
         execSelector.invoke();
       },
@@ -410,11 +380,11 @@ const placeholder = `
     </div>
   </NModal>
   <div flex flex-col p-10px gap-10px h-full>
-    <NSpace>
-      <RouterLink to="/">
-        <NButton>
+    <div flex items-center gap-24px>
+      <a href="/" flex ml-12px title="首页">
+        <NButton text>
           <template #icon>
-            <NIcon>
+            <NIcon :size="24">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 xmlns:xlink="http://www.w3.org/1999/xlink"
@@ -428,12 +398,12 @@ const placeholder = `
             </NIcon>
           </template>
         </NButton>
-      </RouterLink>
+      </a>
       <NInputGroup>
         <NInput
           v-model:value="link"
           placeholder="请输入设备地址"
-          :style="{ minWidth: `250px` }"
+          :style="{ width: `200px` }"
           @keyup.enter="connect.invoke"
         ></NInput>
         <NButton @click="connect.invoke" :loading="connect.loading">
@@ -441,7 +411,7 @@ const placeholder = `
         </NButton>
       </NInputGroup>
       <template v-if="device">
-        <div class="h-full" flex flex-items-center>
+        <div whitespace-nowrap>
           {{ `已连接 ${device.manufacturer} Android ${device.release}` }}
         </div>
         <NButton
@@ -459,7 +429,7 @@ const placeholder = `
         <NButton @click="showSubsModel = true"> 修改内存订阅 </NButton>
         <NButton @click="showSelectorModel = true"> 执行选择器 </NButton>
       </template>
-    </NSpace>
+    </div>
     <NDataTable
       striped
       flexHeight

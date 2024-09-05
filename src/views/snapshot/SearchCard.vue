@@ -1,33 +1,19 @@
 <script setup lang="ts">
 import { message } from '@/utils/discrete';
 import { errorTry, errorWrap } from '@/utils/error';
-import { getNodeLabel } from '@/utils/node';
+import { getAppInfo, getNodeLabel } from '@/utils/node';
 import { buildEmptyFn, copy } from '@/utils/others';
-import type { Selector } from '@/utils/selector';
+import type { GkdSelector } from '@/utils/selector';
 import { parseSelector, wasmLoadTask } from '@/utils/selector';
-import { githubJpgStorage, githubZipStorage } from '@/utils/storage';
+import { githubJpgStorage, importStorage } from '@/utils/storage';
 import type { RawNode, Snapshot } from '@/utils/types';
-import { githubUrlToSelfUrl } from '@/utils/url';
+import { getImportUrl, githubUrlToSelfUrl } from '@/utils/url';
 import dayjs from 'dayjs';
-import JSON5 from 'json5';
-import {
-  NButton,
-  NButtonGroup,
-  NCollapse,
-  NCollapseItem,
-  NIcon,
-  NInput,
-  NInputGroup,
-  NRadio,
-  NRadioGroup,
-  NSpace,
-} from 'naive-ui';
 import * as base64url from 'universal-base64url';
-import { computed, onMounted, shallowReactive, shallowRef } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
-import DraggableCard from './DraggableCard.vue';
+import DraggableCard from '@/components/DraggableCard.vue';
+import { gkdWidth, vw } from '@/utils/size';
+import { SelectorCheckException } from '@gkd-kit/selector';
 
-const router = useRouter();
 const route = useRoute();
 
 const props = withDefaults(
@@ -36,7 +22,10 @@ const props = withDefaults(
     rootNode: RawNode;
     focusNode?: RawNode;
     onUpdateFocusNode?: (data: RawNode) => void;
-    onUpdateTrack?: (track: { selector: Selector; nodes: RawNode[] }) => void;
+    onUpdateTrack?: (track: {
+      selector: GkdSelector;
+      nodes: RawNode[];
+    }) => void;
   }>(),
   {
     onUpdateFocusNode: buildEmptyFn,
@@ -53,7 +42,7 @@ type SearchResult =
     }
   | {
       key: number;
-      selector: Selector;
+      selector: GkdSelector;
       nodes: RawNode[][];
     };
 const selectorResults = shallowReactive<SearchResult[]>([]);
@@ -64,6 +53,9 @@ const searchSelector = (text: string) => {
     (e) => {
       if (typeof e == 'string') {
         return e;
+      }
+      if (e instanceof Error && e.cause instanceof SelectorCheckException) {
+        return e.message;
       }
       return `非法选择器`;
     },
@@ -125,7 +117,7 @@ const refreshExpandedKeys = () => {
   if (!Array.isArray(newNode)) {
     props.onUpdateFocusNode(newNode);
   } else if (typeof newResult.selector == 'object' && Array.isArray(newNode)) {
-    props.onUpdateFocusNode(newNode[newResult.selector.trackIndex]);
+    props.onUpdateFocusNode(newNode[newResult.selector.targetIndex]);
   }
   const allKeys = new Set(selectorResults.map((s) => s.key));
   const newKeys = expandedKeys.value.filter((k) => allKeys.has(k));
@@ -158,18 +150,20 @@ onMounted(async () => {
 });
 
 const generateRules = errorTry(
-  async (result: { key: number; selector: Selector; nodes: RawNode[][] }) => {
+  async (result: {
+    key: number;
+    selector: GkdSelector;
+    nodes: RawNode[][];
+  }) => {
     let jpgUrl = githubJpgStorage[props.snapshot.id];
     if (jpgUrl) {
-      jpgUrl = githubUrlToSelfUrl(router, jpgUrl);
+      jpgUrl = githubUrlToSelfUrl(jpgUrl);
     }
-    let zipUrl = githubZipStorage[props.snapshot.id];
-    if (zipUrl) {
-      zipUrl = githubUrlToSelfUrl(router, zipUrl);
-    }
+    const importId = importStorage[props.snapshot.id];
+    const zipUrl = importId ? getImportUrl(importId) : undefined;
 
     const s = result.selector;
-    const t = result.nodes[0][0];
+    const t = result.nodes[0].at(-1)!;
 
     const quickFind = [
       (t.quickFind ?? t.idQf) && t.attr.id && s.qfIdValue,
@@ -178,7 +172,7 @@ const generateRules = errorTry(
     ].some(Boolean);
     const rule = {
       id: props.snapshot.appId,
-      name: props.snapshot.appName,
+      name: getAppInfo(props.snapshot).name,
       groups: [
         {
           key: 1,
@@ -201,15 +195,12 @@ const generateRules = errorTry(
   },
 );
 const enableSearchBySelector = shallowRef(true);
-const _1vw = window.innerWidth / 100;
 const hasZipId = computed(() => {
-  return githubZipStorage[props.snapshot.id];
+  return importStorage[props.snapshot.id];
 });
 const shareResult = (result: SearchResult) => {
   if (!hasZipId.value) return;
-  const importUrl = new URL(
-    githubUrlToSelfUrl(router, githubZipStorage[props.snapshot.id]),
-  );
+  const importUrl = new URL(getImportUrl(importStorage[props.snapshot.id]));
   if (typeof result.selector == 'object') {
     importUrl.searchParams.set(
       'gkd',
@@ -220,24 +211,24 @@ const shareResult = (result: SearchResult) => {
   }
   copy(importUrl.toString());
 };
+
+const tabShow = shallowRef(true);
 </script>
 <template>
   <DraggableCard
-    :initialValue="{ top: 75, right: Math.max(315, 12 * _1vw + 135) }"
+    :initialValue="{
+      top: 40,
+      right: Math.max(315, 12 * vw + 135),
+      width: Math.max(480, gkdWidth * 0.3),
+    }"
+    :minWidth="300"
+    sizeDraggable
     v-slot="{ onRef }"
     class="z-1 box-shadow-dim"
+    :show="tabShow"
   >
-    <div
-      w-480px
-      bg-white
-      b-1px
-      b-solid
-      b-gray-200
-      rounded-4px
-      p-8px
-      class="min-w-[calc(var(--gkd-width)*0.3)]"
-    >
-      <div flex m-b-4px>
+    <div bg-white b-1px b-solid b-gray-200 rounded-4px p-8px>
+      <div flex m-b-4px pr-4px>
         <NRadioGroup v-model:value="enableSearchBySelector">
           <NSpace>
             <NRadio :value="false"> 字符搜索 </NRadio>
@@ -245,6 +236,15 @@ const shareResult = (result: SearchResult) => {
           </NSpace>
         </NRadioGroup>
         <div flex-1 cursor-move :ref="onRef"></div>
+        <NButton @click="tabShow = !tabShow" text title="最小化">
+          <template #icon>
+            <NIcon>
+              <svg viewBox="0 0 24 24">
+                <path fill="currentColor" d="M6 13v-2h12v2z" />
+              </svg>
+            </NIcon>
+          </template>
+        </NButton>
       </div>
       <NInputGroup>
         <NInput
@@ -366,7 +366,7 @@ const shareResult = (result: SearchResult) => {
             <template
               v-if="
                 typeof result.selector == 'string' ||
-                result.selector.tracks.length <= 1
+                result.selector.connectKeys.length === 0
               "
             >
               <NButton
@@ -408,21 +408,55 @@ const shareResult = (result: SearchResult) => {
                 </NButton>
                 <NButton
                   @click="
-                    onUpdateFocusNode(trackNodes[result.selector.trackIndex])
+                    onUpdateFocusNode(trackNodes[result.selector.targetIndex])
                   "
                   size="small"
                   :class="{
                     'color-[#00F]':
-                      trackNodes[result.selector.trackIndex] === focusNode,
+                      trackNodes[result.selector.targetIndex] === focusNode,
                   }"
                 >
-                  {{ getNodeLabel(trackNodes[result.selector.trackIndex]) }}
+                  {{ getNodeLabel(trackNodes[result.selector.targetIndex]) }}
                 </NButton>
               </NButtonGroup>
             </template>
           </NSpace>
         </NCollapseItem>
       </NCollapse>
+    </div>
+  </DraggableCard>
+  <DraggableCard
+    :initialValue="{
+      bottom: 8,
+      right: 16,
+    }"
+    :minWidth="300"
+    v-slot="{ onRef, moved }"
+    class="z-1 box-shadow-dim rounded-1/2 bg-white"
+    :show="!tabShow"
+  >
+    <div :ref="onRef">
+      <NButton
+        @click="
+          if (!moved) {
+            tabShow = !tabShow;
+          }
+        "
+        circle
+        size="large"
+        title="搜索面板"
+      >
+        <template #icon>
+          <NIcon>
+            <svg viewBox="0 0 24 24">
+              <path
+                fill="currentColor"
+                d="M2 19v-2h10v2zm0-5v-2h5v2zm0-5V7h5v2zm18.6 10l-3.85-3.85q-.6.425-1.312.638T14 16q-2.075 0-3.537-1.463T9 11t1.463-3.537T14 6t3.538 1.463T19 11q0 .725-.213 1.438t-.637 1.312L22 17.6zM14 14q1.25 0 2.125-.875T17 11t-.875-2.125T14 8t-2.125.875T11 11t.875 2.125T14 14"
+              />
+            </svg>
+          </NIcon>
+        </template>
+      </NButton>
     </div>
   </DraggableCard>
 </template>

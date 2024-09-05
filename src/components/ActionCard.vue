@@ -2,23 +2,20 @@
 import { showTextDLg, waitShareAgree } from '@/utils/dialog';
 import { message } from '@/utils/discrete';
 import {
+  exportSnapshotAsImportId,
   exportSnapshotAsJpg,
   exportSnapshotAsJpgUrl,
   exportSnapshotAsZip,
-  exportSnapshotAsZipUrl,
 } from '@/utils/export';
 import { buildEmptyFn, delay } from '@/utils/others';
 import {
   githubJpgStorage,
-  githubZipStorage,
+  importStorage,
   snapshotStorage,
 } from '@/utils/storage';
 import { useTask } from '@/utils/task';
 import type { Snapshot } from '@/utils/types';
-import { githubUrlToSelfUrl } from '@/utils/url';
-import { NButton, NIcon, NPopover, NSpace } from 'naive-ui';
-import { computed } from 'vue';
-import { useRouter } from 'vue-router';
+import { getImportUrl, githubUrlToSelfUrl } from '@/utils/url';
 
 const props = withDefaults(
   defineProps<{
@@ -61,18 +58,18 @@ const exportJpgUrl = useTask(async () => {
   );
   showTextDLg({
     title: `分享链接`,
-    content: githubUrlToSelfUrl(router, pngUrl),
+    content: githubUrlToSelfUrl(pngUrl),
   });
 });
 
 const exportZipUrl = useTask(async () => {
   await waitShareAgree();
-  const zipUrl = await exportSnapshotAsZipUrl(
+  const importId = await exportSnapshotAsImportId(
     (await snapshotStorage.getItem(props.snapshot.id))!,
   );
   showTextDLg({
     title: `分享链接`,
-    content: githubUrlToSelfUrl(router, zipUrl),
+    content: location.origin + `/i/${importId}`,
   });
 });
 
@@ -94,12 +91,12 @@ const copy = async (content: string) => {
 };
 </script>
 <template>
-  <div flex gap-12px flex-nowrap>
-    <a v-if="showPreview" target="_blank" :href="previewUrl">
-      <NButton size="small">
+  <div flex gap-16px>
+    <a v-if="showPreview" flex target="_blank" :href="previewUrl">
+      <NButton text title="查看">
         <template #icon>
-          <NIcon>
-            <svg viewBox="0 0 1024 1024" width="200" height="200">
+          <NIcon size="">
+            <svg viewBox="0 0 1024 1024">
               <path
                 d="M549.973333 128 633.6 145.066667 474.026667 896 390.4 878.933333 549.973333 128M835.84 512 682.666667 358.826667 682.666667 238.08 956.586667 512 682.666667 785.493333 682.666667 664.746667 835.84 512M67.413333 512 341.333333 238.08 341.333333 358.826667 188.16 512 341.333333 664.746667 341.333333 785.493333 67.413333 512Z"
               ></path>
@@ -111,7 +108,7 @@ const copy = async (content: string) => {
 
     <NPopover v-if="showExport">
       <template #trigger>
-        <NButton size="small">
+        <NButton text>
           <template #icon>
             <NIcon>
               <svg
@@ -147,7 +144,7 @@ const copy = async (content: string) => {
 
     <NPopover v-if="showShare">
       <template #trigger>
-        <NButton size="small">
+        <NButton text>
           <template #icon>
             <NIcon>
               <svg
@@ -166,10 +163,8 @@ const copy = async (content: string) => {
       </template>
       <NSpace vertical>
         <NButton
-          v-if="githubZipStorage[snapshot.id]"
-          @click="
-            copy(githubUrlToSelfUrl($router, githubZipStorage[snapshot.id]))
-          "
+          v-if="importStorage[snapshot.id]"
+          @click="copy(getImportUrl(importStorage[snapshot.id]))"
         >
           复制链接-快照
         </NButton>
@@ -182,9 +177,7 @@ const copy = async (content: string) => {
         </NButton>
         <NButton
           v-if="githubJpgStorage[snapshot.id]"
-          @click="
-            copy(githubUrlToSelfUrl($router, githubJpgStorage[snapshot.id]))
-          "
+          @click="copy(githubUrlToSelfUrl(githubJpgStorage[snapshot.id]))"
         >
           复制链接-图片
         </NButton>
@@ -198,22 +191,28 @@ const copy = async (content: string) => {
       </NSpace>
     </NPopover>
 
-    <NButton v-if="showDelete" size="small" @click="deleteSnapshot">
-      <template #icon>
-        <NIcon>
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            xmlns:xlink="http://www.w3.org/1999/xlink"
-            viewBox="0 0 24 24"
-          >
-            <g fill="none">
-              <path
-                d="M12 1.75a3.25 3.25 0 0 1 3.245 3.066L15.25 5h5.25a.75.75 0 0 1 .102 1.493L20.5 6.5h-.796l-1.28 13.02a2.75 2.75 0 0 1-2.561 2.474l-.176.006H8.313a2.75 2.75 0 0 1-2.714-2.307l-.023-.174L4.295 6.5H3.5a.75.75 0 0 1-.743-.648L2.75 5.75a.75.75 0 0 1 .648-.743L3.5 5h5.25A3.25 3.25 0 0 1 12 1.75zm6.197 4.75H5.802l1.267 12.872a1.25 1.25 0 0 0 1.117 1.122l.127.006h7.374c.6 0 1.109-.425 1.225-1.002l.02-.126L18.196 6.5zM13.75 9.25a.75.75 0 0 1 .743.648L14.5 10v7a.75.75 0 0 1-1.493.102L13 17v-7a.75.75 0 0 1 .75-.75zm-3.5 0a.75.75 0 0 1 .743.648L11 10v7a.75.75 0 0 1-1.493.102L9.5 17v-7a.75.75 0 0 1 .75-.75zm1.75-6a1.75 1.75 0 0 0-1.744 1.606L10.25 5h3.5A1.75 1.75 0 0 0 12 3.25z"
-                fill="currentColor"
-              ></path>
-            </g></svg
-        ></NIcon>
+    <NPopconfirm v-if="showDelete" @positive-click="deleteSnapshot">
+      是否删除快照?
+      <template #trigger>
+        <NButton text title="删除">
+          <template #icon>
+            <NIcon>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                xmlns:xlink="http://www.w3.org/1999/xlink"
+                viewBox="0 0 24 24"
+              >
+                <g fill="none">
+                  <path
+                    d="M12 1.75a3.25 3.25 0 0 1 3.245 3.066L15.25 5h5.25a.75.75 0 0 1 .102 1.493L20.5 6.5h-.796l-1.28 13.02a2.75 2.75 0 0 1-2.561 2.474l-.176.006H8.313a2.75 2.75 0 0 1-2.714-2.307l-.023-.174L4.295 6.5H3.5a.75.75 0 0 1-.743-.648L2.75 5.75a.75.75 0 0 1 .648-.743L3.5 5h5.25A3.25 3.25 0 0 1 12 1.75zm6.197 4.75H5.802l1.267 12.872a1.25 1.25 0 0 0 1.117 1.122l.127.006h7.374c.6 0 1.109-.425 1.225-1.002l.02-.126L18.196 6.5zM13.75 9.25a.75.75 0 0 1 .743.648L14.5 10v7a.75.75 0 0 1-1.493.102L13 17v-7a.75.75 0 0 1 .75-.75zm-3.5 0a.75.75 0 0 1 .743.648L11 10v7a.75.75 0 0 1-1.493.102L9.5 17v-7a.75.75 0 0 1 .75-.75zm1.75-6a1.75 1.75 0 0 0-1.744 1.606L10.25 5h3.5A1.75 1.75 0 0 0 12 3.25z"
+                    fill="currentColor"
+                  ></path>
+                </g>
+              </svg>
+            </NIcon>
+          </template>
+        </NButton>
       </template>
-    </NButton>
+    </NPopconfirm>
   </div>
 </template>
